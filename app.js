@@ -1,3 +1,4 @@
+const BASE_API_URL = "https://mrz.scicom.my";
 const state = {
   upload: null,
   documentId: null,
@@ -68,7 +69,7 @@ function clamp(value, min, max) {
 }
 
 function getPreviewUrl(documentId) {
-  return `/api/documents/${documentId}/preview`;
+  return `${BASE_API_URL}/api/documents/${documentId}/preview`;
 }
 
 function getWorkingFrameCrop() {
@@ -541,7 +542,7 @@ async function handleUpload(event) {
     const formData = new FormData();
     formData.append("file", file);
 
-    const response = await fetch("/api/uploads", {
+    const response = await fetch(`${BASE_API_URL}/api/uploads`, {
       method: "POST",
       body: formData,
     });
@@ -600,7 +601,7 @@ async function handleExtraction() {
 
   try {
     const payload = buildExtractionPayload();
-    const response = await fetch("/api/extractions", {
+    const response = await fetch(`${BASE_API_URL}/api/extractions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
