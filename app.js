@@ -1,4 +1,4 @@
-const BASE_API_URL = "https://mrz.scicom.my"; // remove this after deploying 
+const BASE_API_URL = "https://mrz.scicom.my"; // remove this after deploying
 const state = {
   upload: null,
   documentId: null,
@@ -440,75 +440,6 @@ function drawCropRect(rectPx) {
   ctx.strokeRect(rectPx.x, rectPx.y, rectPx.width, rectPx.height);
   ctx.restore();
 }
-
-// function renderCanvas() {
-//   if (!state.previewImage) {
-//     els.viewerFrame.classList.add("empty");
-//     drawEmptyCanvas();
-//     return;
-//   }
-
-//   els.viewerFrame.classList.remove("empty");
-//   const image = state.previewImage;
-//   const source = getPaddedPreviewSource();
-//   const rotated = getRotatedImageSize();
-//   const targetWidth = Math.max(320, Math.round(els.viewerFrame.clientWidth - 2));
-//   const targetHeight = Math.max(240, Math.round(els.viewerFrame.clientHeight - 2));
-//   const scale = Math.min(targetWidth / rotated.width, targetHeight / rotated.height);
-
-//   els.canvas.width = targetWidth;
-//   els.canvas.height = targetHeight;
-//   state.canvasScale = scale;
-//   state.canvasBounds = { x: 0, y: 0, width: targetWidth, height: targetHeight };
-
-//   ctx.clearRect(0, 0, targetWidth, targetHeight);
-//   ctx.imageSmoothingEnabled = true;
-//   ctx.imageSmoothingQuality = "high";
-//   ctx.save();
-//   ctx.translate(targetWidth / 2, targetHeight / 2);
-//   ctx.scale(scale, scale);
-//   ctx.translate(state.offsetX * rotated.width, state.offsetY * rotated.height);
-//   ctx.rotate((state.microRotation * Math.PI) / 180);
-//   ctx.scale(state.zoom, state.zoom);
-
-//   if (state.rotation === 0) {
-//     ctx.drawImage(source, -source.width / 2, -source.height / 2);
-//   } else if (state.rotation === 90) {
-//     ctx.rotate(Math.PI / 2);
-//     ctx.drawImage(source, -source.width / 2, -source.height / 2);
-//   } else if (state.rotation === 180) {
-//     ctx.rotate(Math.PI);
-//     ctx.drawImage(source, -source.width / 2, -source.height / 2);
-//   } else if (state.rotation === 270) {
-//     ctx.rotate(-Math.PI / 2);
-//     ctx.drawImage(source, -source.width / 2, -source.height / 2);
-//   }
-//   ctx.restore();
-
-//   // Keep a visible centered working frame; the backend crops to this box.
-//   const frameX = targetWidth * WORKING_FRAME_MARGIN_X;
-//   const frameY = targetHeight * WORKING_FRAME_MARGIN_Y;
-//   const frameWidth = targetWidth * (1 - (WORKING_FRAME_MARGIN_X * 2));
-//   const frameHeight = targetHeight * (1 - (WORKING_FRAME_MARGIN_Y * 2));
-//   const mrzFocusY = frameY + (frameHeight * (1 - MRZ_FOCUS_HEIGHT));
-//   const mrzFocusHeight = frameHeight * MRZ_FOCUS_HEIGHT;
-
-//   ctx.save();
-//   ctx.fillStyle = "rgba(40, 112, 197, 0.20)";
-//   ctx.beginPath();
-//   ctx.rect(0, 0, targetWidth, targetHeight);
-//   ctx.rect(frameX, frameY, frameWidth, frameHeight);
-//   ctx.fill("evenodd");
-//   ctx.strokeStyle = "rgba(34, 139, 34, 0.95)";
-//   ctx.lineWidth = 2;
-//   ctx.strokeRect(frameX, frameY, frameWidth, frameHeight);
-//   ctx.fillStyle = "rgba(40, 112, 197, 0.16)";
-//   ctx.fillRect(frameX, frameY, frameWidth, Math.max(0, mrzFocusY - frameY));
-//   ctx.strokeStyle = "rgba(20, 92, 170, 0.45)";
-//   ctx.setLineDash([8, 6]);
-//   ctx.strokeRect(frameX, mrzFocusY, frameWidth, mrzFocusHeight);
-//   ctx.restore();
-// }
 
 function drawWorkingFrameOverlay(targetWidth, targetHeight) {
   const frameX = targetWidth * WORKING_FRAME_MARGIN_X;
