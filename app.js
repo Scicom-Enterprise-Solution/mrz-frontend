@@ -1,3 +1,4 @@
+const BASE_API_URL = "https://mrz.scicom.my"; // remove this after deploying
 const state = {
   upload: null,
   documentId: null,
@@ -43,6 +44,8 @@ const els = {
   statusText: document.querySelector("#status-text"),
 };
 
+let opencvReady = false;
+
 const ctx = els.canvas.getContext("2d");
 const WORKING_FRAME_MARGIN_X = 0.04;
 const WORKING_FRAME_MARGIN_Y = 0.04;
@@ -68,7 +71,7 @@ function clamp(value, min, max) {
 }
 
 function getPreviewUrl(documentId) {
-  return `/api/documents/${documentId}/preview`;
+  return `${BASE_API_URL}/api/documents/${documentId}/preview`;
 }
 
 function getWorkingFrameCrop() {
@@ -438,27 +441,118 @@ function drawCropRect(rectPx) {
   ctx.restore();
 }
 
-function renderCanvas() {
-  if (!state.previewImage) {
-    els.viewerFrame.classList.add("empty");
-    drawEmptyCanvas();
-    return;
-  }
+function drawWorkingFrameOverlay(targetWidth, targetHeight) {
+  const frameX = targetWidth * WORKING_FRAME_MARGIN_X;
+  const frameY = targetHeight * WORKING_FRAME_MARGIN_Y;
+  const frameWidth = targetWidth * (1 - (WORKING_FRAME_MARGIN_X * 2));
+  const frameHeight = targetHeight * (1 - (WORKING_FRAME_MARGIN_Y * 2));
+  const mrzFocusY = frameY + (frameHeight * (1 - MRZ_FOCUS_HEIGHT));
+  const mrzFocusHeight = frameHeight * MRZ_FOCUS_HEIGHT;
 
-  els.viewerFrame.classList.remove("empty");
-  const image = state.previewImage;
+  ctx.save();
+  ctx.fillStyle = "rgba(40, 112, 197, 0.20)";
+  ctx.beginPath();
+  ctx.rect(0, 0, targetWidth, targetHeight);
+  ctx.rect(frameX, frameY, frameWidth, frameHeight);
+  ctx.fill("evenodd");
+  ctx.strokeStyle = "rgba(34, 139, 34, 0.95)";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([]);
+  ctx.strokeRect(frameX, frameY, frameWidth, frameHeight);
+  ctx.fillStyle = "rgba(40, 112, 197, 0.16)";
+  ctx.fillRect(frameX, frameY, frameWidth, Math.max(0, mrzFocusY - frameY));
+  ctx.strokeStyle = "rgba(20, 92, 170, 0.45)";
+  ctx.setLineDash([8, 6]);
+  ctx.strokeRect(frameX, mrzFocusY, frameWidth, mrzFocusHeight);
+  ctx.restore();
+}
+function renderWithOpenCv(targetW, targetH) {
+  const mats = [];
+  const track = (m) => { mats.push(m); return m; };
+  try {
+    const cv_mod = window.cv;
+    const image = state.previewImage;
+
+    // Step 1 – read source image from a temp canvas into a Mat
+    const srcCanvas = document.createElement("canvas");
+    srcCanvas.width = image.width;
+    srcCanvas.height = image.height;
+    const srcCtx = srcCanvas.getContext("2d");
+    srcCtx.drawImage(image, 0, 0);
+    const srcMat = track(cv_mod.imread(srcCanvas));
+
+    // Step 2 – coarse rotation (exact 90-degree steps)
+    const rotMat = track(new cv_mod.Mat());
+    if (state.rotation === 90) {
+      cv_mod.rotate(srcMat, rotMat, cv_mod.ROTATE_90_CLOCKWISE);
+    } else if (state.rotation === 180) {
+      cv_mod.rotate(srcMat, rotMat, cv_mod.ROTATE_180);
+    } else if (state.rotation === 270) {
+      cv_mod.rotate(srcMat, rotMat, cv_mod.ROTATE_90_COUNTERCLOCKWISE);
+    } else {
+      srcMat.copyTo(rotMat);
+    }
+
+    // Step 3 – resize the rotated image to fit within the viewport (letterbox)
+    const rotW = rotMat.cols;
+    const rotH = rotMat.rows;
+    const fitScale = Math.min(targetW / rotW, targetH / rotH);
+    const fitW = Math.round(rotW * fitScale);
+    const fitH = Math.round(rotH * fitScale);
+    const resizedMat = track(new cv_mod.Mat());
+    cv_mod.resize(rotMat, resizedMat, new cv_mod.Size(fitW, fitH), 0, 0, cv_mod.INTER_LINEAR);
+
+    // Step 4 – place the fitted image centered inside a viewport-sized Mat
+    const bg = new cv_mod.Scalar(246, 240, 229, 255); // #f6f0e5
+    const vpMat = track(new cv_mod.Mat(targetH, targetW, cv_mod.CV_8UC4, bg));
+    const pasteX = Math.round((targetW - fitW) / 2);
+    const pasteY = Math.round((targetH - fitH) / 2);
+    const roi = track(vpMat.roi(new cv_mod.Rect(pasteX, pasteY, fitW, fitH)));
+    resizedMat.copyTo(roi);
+
+    // Step 5 – affine transform in viewport space, mirroring backend OpenCV:
+    //   center = (vpW/2 + offset_x * vpW, vpH/2 + offset_y * vpH)
+    //   angle  = micro_rotation  (degrees, positive = clockwise in canvas space)
+    //   scale  = zoom
+    const cx = targetW / 2 + state.offsetX * targetW;
+    const cy = targetH / 2 + state.offsetY * targetH;
+    const M = track(cv_mod.getRotationMatrix2D(new cv_mod.Point(cx, cy), state.microRotation, state.zoom));
+    const outMat = track(new cv_mod.Mat());
+    cv_mod.warpAffine(
+      vpMat, outMat, M,
+      new cv_mod.Size(targetW, targetH),
+      cv_mod.INTER_LINEAR,
+      cv_mod.BORDER_CONSTANT,
+      bg
+    );
+
+    // Step 6 – write to an offscreen canvas then composite onto the display canvas
+    const offCanvas = document.createElement("canvas");
+    cv_mod.imshow(offCanvas, outMat); // imshow resizes offCanvas to targetW×targetH
+    ctx.clearRect(0, 0, targetW, targetH);
+    ctx.drawImage(offCanvas, 0, 0);
+
+    state.canvasScale = fitScale;
+    return true;
+  } catch (err) {
+    console.warn("[opencv] render failed, using canvas fallback:", err);
+    return false;
+  } finally {
+    for (const m of mats) {
+      try { m.delete(); } catch (_) { /* ignore double-free */ }
+    }
+  }
+}
+
+function renderCanvasFallback(targetWidth, targetHeight) {
   const source = getPaddedPreviewSource();
   const rotated = getRotatedImageSize();
-  const targetWidth = Math.max(320, Math.round(els.viewerFrame.clientWidth - 2));
-  const targetHeight = Math.max(240, Math.round(els.viewerFrame.clientHeight - 2));
   const scale = Math.min(targetWidth / rotated.width, targetHeight / rotated.height);
-
-  els.canvas.width = targetWidth;
-  els.canvas.height = targetHeight;
   state.canvasScale = scale;
-  state.canvasBounds = { x: 0, y: 0, width: targetWidth, height: targetHeight };
 
   ctx.clearRect(0, 0, targetWidth, targetHeight);
+  ctx.fillStyle = "#f6f0e5";
+  ctx.fillRect(0, 0, targetWidth, targetHeight);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.save();
@@ -481,30 +575,31 @@ function renderCanvas() {
     ctx.drawImage(source, -source.width / 2, -source.height / 2);
   }
   ctx.restore();
+}
 
-  // Keep a visible centered working frame; the backend crops to this box.
-  const frameX = targetWidth * WORKING_FRAME_MARGIN_X;
-  const frameY = targetHeight * WORKING_FRAME_MARGIN_Y;
-  const frameWidth = targetWidth * (1 - (WORKING_FRAME_MARGIN_X * 2));
-  const frameHeight = targetHeight * (1 - (WORKING_FRAME_MARGIN_Y * 2));
-  const mrzFocusY = frameY + (frameHeight * (1 - MRZ_FOCUS_HEIGHT));
-  const mrzFocusHeight = frameHeight * MRZ_FOCUS_HEIGHT;
+function renderCanvas() {
+  if (!state.previewImage) {
+    els.viewerFrame.classList.add("empty");
+    drawEmptyCanvas();
+    return;
+  }
 
-  ctx.save();
-  ctx.fillStyle = "rgba(40, 112, 197, 0.20)";
-  ctx.beginPath();
-  ctx.rect(0, 0, targetWidth, targetHeight);
-  ctx.rect(frameX, frameY, frameWidth, frameHeight);
-  ctx.fill("evenodd");
-  ctx.strokeStyle = "rgba(34, 139, 34, 0.95)";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(frameX, frameY, frameWidth, frameHeight);
-  ctx.fillStyle = "rgba(40, 112, 197, 0.16)";
-  ctx.fillRect(frameX, frameY, frameWidth, Math.max(0, mrzFocusY - frameY));
-  ctx.strokeStyle = "rgba(20, 92, 170, 0.45)";
-  ctx.setLineDash([8, 6]);
-  ctx.strokeRect(frameX, mrzFocusY, frameWidth, mrzFocusHeight);
-  ctx.restore();
+  els.viewerFrame.classList.remove("empty");
+  const targetWidth = Math.max(320, Math.round(els.viewerFrame.clientWidth - 2));
+  const targetHeight = Math.max(240, Math.round(els.viewerFrame.clientHeight - 2));
+
+  els.canvas.width = targetWidth;
+  els.canvas.height = targetHeight;
+  state.canvasBounds = { x: 0, y: 0, width: targetWidth, height: targetHeight };
+
+  // Try opencv.js first; fall back to canvas-only on failure or before ready
+  const usedOpenCv = opencvReady && renderWithOpenCv(targetWidth, targetHeight);
+  if (!usedOpenCv) {
+    renderCanvasFallback(targetWidth, targetHeight);
+  }
+
+  // Working frame overlay is the same regardless of render path
+  drawWorkingFrameOverlay(targetWidth, targetHeight);
 }
 
 function getCanvasPointer(event) {
@@ -541,7 +636,7 @@ async function handleUpload(event) {
     const formData = new FormData();
     formData.append("file", file);
 
-    const response = await fetch("/api/uploads", {
+    const response = await fetch(`${BASE_API_URL}/api/uploads`, {
       method: "POST",
       body: formData,
     });
@@ -600,7 +695,7 @@ async function handleExtraction() {
 
   try {
     const payload = buildExtractionPayload();
-    const response = await fetch("/api/extractions", {
+    const response = await fetch(`${BASE_API_URL}/api/extractions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -660,6 +755,32 @@ function handlePointerUp(event) {
 function handleResize() {
   renderCanvas();
 }
+
+function _markOpenCvReady() {
+  opencvReady = true;
+  if (els.opencvChip) {
+    els.opencvChip.textContent = "opencv: ready";
+    els.opencvChip.style.color = "";
+  }
+  if (state.previewImage) renderCanvas();
+}
+
+window.onOpenCvReady = function () {
+  if (typeof cv === "undefined") return;
+  // WASM may already be initialized or still loading
+  if (cv.Mat) {
+    _markOpenCvReady();
+  } else {
+    cv["onRuntimeInitialized"] = _markOpenCvReady;
+  }
+};
+
+window.onOpenCvError = function () {
+  if (els.opencvChip) {
+    els.opencvChip.textContent = "opencv: unavailable";
+    els.opencvChip.style.color = "var(--danger)";
+  }
+};
 
 function init() {
   drawEmptyCanvas();
