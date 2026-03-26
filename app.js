@@ -58,7 +58,7 @@ const OFFSET_Y_LIMIT = 0.6;
 const ZOOM_MIN = 1.0;
 const ZOOM_MAX = 2.2;
 const DRAG_SENSITIVITY = 0.35;
-const MRZ_FOCUS_HEIGHT = 0.30;
+const MRZ_FOCUS_HEIGHT = 0.140625;
 const BG_FILL = "#f6f0e5";
 
 const guidanceCanvas = document.createElement("canvas");
@@ -81,21 +81,6 @@ function clamp(value, min, max) {
 
 function getPreviewUrl(documentId) {
   return `${BASE_API_URL}/api/documents/${documentId}/preview`;
-}
-
-function getWorkingFrameCrop() {
-  const width = state.canvasBounds.width;
-  const height = state.canvasBounds.height;
-  if (!width || !height) {
-    return null;
-  }
-
-  return {
-    x: Number(WORKING_FRAME_MARGIN_X.toFixed(6)),
-    y: Number(WORKING_FRAME_MARGIN_Y.toFixed(6)),
-    width: Number((1.0 - (WORKING_FRAME_MARGIN_X * 2)).toFixed(6)),
-    height: Number((1.0 - (WORKING_FRAME_MARGIN_Y * 2)).toFixed(6)),
-  };
 }
 
 function getRotatedImageSize() {
@@ -137,7 +122,6 @@ function buildExtractionPayload() {
       viewport_width: Math.max(1, Math.round(state.canvasBounds.width || 0)),
       viewport_height: Math.max(1, Math.round(state.canvasBounds.height || 0)),
     },
-    crop: getWorkingFrameCrop(),
     use_face_hint: Boolean(els.useFaceHint.checked),
   };
 }
@@ -327,7 +311,6 @@ function buildCropAnalysis() {
     ];
   }
   const warnings = [];
-  const fixedCrop = getWorkingFrameCrop();
 
   if (Math.abs(state.microRotation) > 3.0) {
     warnings.push("Micro rotation is fairly large. Recheck that the page is truly skewed before keeping it.");
@@ -350,7 +333,6 @@ function buildCropAnalysis() {
         `Micro rotation: ${state.microRotation.toFixed(1)} degrees`,
         `Zoom: ${state.zoom.toFixed(2)}x`,
         `Offset: x=${state.offsetX.toFixed(3)}, y=${state.offsetY.toFixed(3)}`,
-        `Fixed crop: x=${fixedCrop.x.toFixed(3)}, y=${fixedCrop.y.toFixed(3)}, width=${fixedCrop.width.toFixed(3)}, height=${fixedCrop.height.toFixed(3)}`,
       ],
       tone: warnings.length === 0 ? "analysis-good" : "",
     },
@@ -459,29 +441,41 @@ function drawCropRect(rectPx) {
 }
 
 function drawWorkingFrameOverlay(targetWidth, targetHeight) {
-  const frameX = targetWidth * WORKING_FRAME_MARGIN_X;
-  const frameY = targetHeight * WORKING_FRAME_MARGIN_Y;
-  const frameWidth = targetWidth * (1 - (WORKING_FRAME_MARGIN_X * 2));
-  const frameHeight = targetHeight * (1 - (WORKING_FRAME_MARGIN_Y * 2));
-  const mrzFocusY = frameY + (frameHeight * (1 - MRZ_FOCUS_HEIGHT));
-  const mrzFocusHeight = frameHeight * MRZ_FOCUS_HEIGHT;
+  const bottomPad = targetHeight * 0.04;
+  const zoneX = targetWidth * 0.01;
+  const zoneY = targetHeight * (1 - MRZ_FOCUS_HEIGHT) - bottomPad;
+  const zoneW = targetWidth * 0.98;
+  const zoneH = targetHeight * MRZ_FOCUS_HEIGHT;
 
-  ctx.save();
-  ctx.fillStyle = "rgba(40, 112, 197, 0.20)";
-  ctx.beginPath();
-  ctx.rect(0, 0, targetWidth, targetHeight);
-  ctx.rect(frameX, frameY, frameWidth, frameHeight);
-  ctx.fill("evenodd");
-  ctx.strokeStyle = "rgba(34, 139, 34, 0.95)";
-  ctx.lineWidth = 2;
-  ctx.setLineDash([]);
-  ctx.strokeRect(frameX, frameY, frameWidth, frameHeight);
-  ctx.fillStyle = "rgba(40, 112, 197, 0.16)";
-  ctx.fillRect(frameX, frameY, frameWidth, Math.max(0, mrzFocusY - frameY));
-  ctx.strokeStyle = "rgba(20, 92, 170, 0.45)";
-  ctx.setLineDash([8, 6]);
-  ctx.strokeRect(frameX, mrzFocusY, frameWidth, mrzFocusHeight);
-  ctx.restore();
+ctx.save();
+ctx.setLineDash([8, 6]);
+ctx.strokeStyle = "rgba(13, 107, 95, 0.35)";
+ctx.lineWidth = 2;
+ctx.fillStyle = "rgba(13, 107, 95, 0.05)";
+ctx.fillRect(zoneX, zoneY, zoneW, zoneH);
+ctx.strokeRect(zoneX, zoneY, zoneW, zoneH);
+ctx.setLineDash([]);
+
+const label = "Align MRZ lines inside this box";
+ctx.font = '600 13px "Segoe UI", sans-serif';
+const textWidth = ctx.measureText(label).width;
+const textX = targetWidth / 2;
+const textY = zoneY - 15;
+const padX = 10, padH = 25;
+
+// Draw dark pill background behind text
+ctx.fillStyle = "rgba(0, 0, 0, 0.47)";
+ctx.beginPath();
+ctx.roundRect(textX - textWidth / 2 - padX, textY - padH + 4, textWidth + padX * 2, padH + 4, 6);
+ctx.fill();
+
+// Draw crisp white text on top
+ctx.fillStyle = "rgba(216, 255, 224, 0.94)";
+ctx.textAlign = "center";
+ctx.textBaseline = "bottom";
+ctx.fillText(label, textX, textY);
+
+ctx.restore();
 }
 // ── Shared render function for all three canvases ──────────────────
 // Renders current image with all transforms onto targetCanvas at the given size.
