@@ -45,6 +45,8 @@ const els = {
   resultJson: document.querySelector("#result-json"),
   analysisOutput: document.querySelector("#analysis-output"),
   statusText: document.querySelector("#status-text"),
+  spinnerOverlay: document.querySelector("#spinner-overlay"),
+  toastContainer: document.querySelector("#toast-container"),
 };
 
 let opencvReady = false;
@@ -65,6 +67,20 @@ const guidanceCanvas = document.createElement("canvas");
 let renderNeeded = true;
 let guidanceTimer = null;
 const GUIDANCE_INTERVAL = 500;
+
+function showToast(message, type) {
+  if (!els.toastContainer) return;
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type === "success" ? "success" : "error"}`;
+  const icon = type === "success" ? "\u2713" : "\u2717";
+  toast.innerHTML = `<span class="toast-icon">${icon}</span><span>${escapeHtml(message)}</span>`;
+  els.toastContainer.appendChild(toast);
+  const dismiss = () => {
+    toast.classList.add("toast-dismissing");
+    toast.addEventListener("animationend", () => toast.remove(), { once: true });
+  };
+  setTimeout(dismiss, 4000);
+}
 
 function setStatus(message, isError = false) {
   els.statusText.textContent = message;
@@ -386,6 +402,9 @@ function updateControls() {
   els.offsetXRange.value = String(state.offsetX);
   els.offsetYRange.value = String(state.offsetY);
   updatePayloadView();
+  if (els.spinnerOverlay) {
+    els.spinnerOverlay.hidden = !state.isBusy;
+  }
 }
 
 function updateDocumentSummary() {
@@ -793,8 +812,14 @@ async function handleExtraction() {
     els.resultJson.textContent = formatJson(result);
     renderAnalysis(result);
     setStatus(`Extraction completed with status=${result.status}.`);
+    const isSuccess = result.status === "success";
+    showToast(
+      isSuccess ? "Extraction successful" : `Extraction ${result.status || "failed"}`,
+      isSuccess ? "success" : "error"
+    );
   } catch (error) {
     setStatus(error.message || "Extraction failed.", true);
+    showToast(error.message || "Extraction failed", "error");
   } finally {
     state.isBusy = false;
     updateControls();
