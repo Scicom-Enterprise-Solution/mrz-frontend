@@ -391,7 +391,8 @@ function updateControls() {
   els.rotateRight.disabled = !hasImage || state.isBusy;
   els.resetAdjust.disabled = !hasImage || state.isBusy;
   els.extractButton.disabled = !hasImage || state.isBusy;
-  els.uploadButton.disabled = state.isBusy;
+  const hasFile = els.fileInput.files && els.fileInput.files.length > 0;
+  els.uploadButton.disabled = !hasFile || state.isBusy;
   els.fileInput.disabled = state.isBusy;
   els.microRotate.disabled = !hasImage || state.isBusy;
   els.zoomOut.disabled = !hasImage || state.isBusy;
@@ -988,6 +989,7 @@ function init() {
   renderCropAnalysis();
   requestAnimationFrame(animationFrame);
   els.uploadForm.addEventListener("submit", handleLoadImage);
+  els.fileInput.addEventListener("change", updateControls);
   els.rotateLeft.addEventListener("click", () => rotate(270));
   els.rotateRight.addEventListener("click", () => rotate(90));
   els.resetAdjust.addEventListener("click", resetAdjustments);
