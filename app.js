@@ -126,19 +126,23 @@ function getPaddedPreviewSource() {
   return canvas;
 }
 
+function dataUrlToBlob(dataUrl) {
+  const [meta, base64] = dataUrl.split(",");
+  const mime = meta.match(/data:(.*?);base64/)?.[1] || "image/jpeg";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
 function buildExtractionPayload() {
   return {
     document_id: state.documentId,
-    rotation: state.rotation,
-    transform: {
-      micro_rotation: Number(state.microRotation.toFixed(3)),
-      zoom: Number(state.zoom.toFixed(3)),
-      offset_x: Number(state.offsetX.toFixed(6)),
-      offset_y: Number(state.offsetY.toFixed(6)),
-      viewport_width: Math.max(1, Math.round(state.canvasBounds.width || 0)),
-      viewport_height: Math.max(1, Math.round(state.canvasBounds.height || 0)),
-    },
-    use_face_hint: Boolean(els.useFaceHint.checked),
+    input_mode: "frontend",
+    enable_correction: false,
+    use_face_hint: false,
   };
 }
 
@@ -759,6 +763,7 @@ function rotate(delta) {
   setStatus(`Rotation set to ${state.rotation} degrees.`);
 }
 
+
 async function handleExtraction() {
   if (!state.previewImage || !state.localFile) {
     return;
@@ -768,16 +773,16 @@ async function handleExtraction() {
   updateControls();
 
   try {
-    // Step 1: Render the export canvas at full resolution
+    // Step 1: Render the export canvas and encode as JPEG
     setStatus("Rendering full-resolution export image...");
     renderExportCanvas();
+    const dataUrl = els.exportCanvas.toDataURL("image/jpeg", 0.95);
+    const blob = dataUrlToBlob(dataUrl);
 
-    // Step 2: Convert export canvas to JPEG blob and upload
+    // Step 2: Upload the JPEG blob
     setStatus("Uploading processed image...");
-    const blob = await new Promise((resolve) => {
-      els.exportCanvas.toBlob(resolve, "image/jpeg", 0.95);
-    });
-    const filename = state.localFile.name.replace(/\.[^.]+$/, ".jpg");
+    const baseName = state.localFile.name.replace(/\.[^.]+$/, "");
+    const filename = `${baseName}_frontend.jpg`;
     const formData = new FormData();
     formData.append("file", blob, filename);
 
@@ -798,7 +803,12 @@ async function handleExtraction() {
 
     // Step 3: Run extraction
     setStatus("Running extraction...");
-    const extractionPayload = buildExtractionPayload();
+    const extractionPayload = {
+      document_id: state.documentId,
+      input_mode: "frontend",
+      enable_correction: false,
+      use_face_hint: false,
+    };
     const extractionResponse = await fetch(`${BASE_API_URL}/api/extractions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
