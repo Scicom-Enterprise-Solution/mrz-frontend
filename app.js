@@ -44,9 +44,16 @@ const els = {
   uploadJson: document.querySelector("#upload-json"),
   resultJson: document.querySelector("#result-json"),
   analysisOutput: document.querySelector("#analysis-output"),
+  microRotateVal: document.querySelector("#micro-rotate-val"),
+  zoomVal: document.querySelector("#zoom-val"),
+  offsetXVal: document.querySelector("#offset-x-val"),
+  offsetYVal: document.querySelector("#offset-y-val"),
   statusText: document.querySelector("#status-text"),
   spinnerOverlay: document.querySelector("#spinner-overlay"),
   toastContainer: document.querySelector("#toast-container"),
+  fileDrop: document.querySelector(".file-drop"),
+  fileDropLabel: document.querySelector(".file-drop-label"),
+  extractButtonInline: document.querySelector("#extract-button-inline"),
 };
 
 let opencvReady = false;
@@ -391,6 +398,7 @@ function updateControls() {
   els.rotateRight.disabled = !hasImage || state.isBusy;
   els.resetAdjust.disabled = !hasImage || state.isBusy;
   els.extractButton.disabled = !hasImage || state.isBusy;
+  els.extractButtonInline.disabled = !hasImage || state.isBusy;
   const hasFile = els.fileInput.files && els.fileInput.files.length > 0;
   els.uploadButton.disabled = !hasFile || state.isBusy;
   els.fileInput.disabled = state.isBusy;
@@ -406,6 +414,10 @@ function updateControls() {
   els.zoomRange.value = String(state.zoom);
   els.offsetXRange.value = String(state.offsetX);
   els.offsetYRange.value = String(state.offsetY);
+  els.microRotateVal.textContent = `${state.microRotation >= 0 ? "+" : ""}${state.microRotation.toFixed(1)}°`;
+  els.zoomVal.textContent = `${state.zoom.toFixed(2)}×`;
+  els.offsetXVal.textContent = `${state.offsetX >= 0 ? "+" : ""}${state.offsetX.toFixed(3)}`;
+  els.offsetYVal.textContent = `${state.offsetY >= 0 ? "+" : ""}${state.offsetY.toFixed(3)}`;
   updatePayloadView();
   if (els.spinnerOverlay) {
     els.spinnerOverlay.hidden = !state.isBusy;
@@ -711,14 +723,7 @@ function renderExportCanvas() {
   renderImage(els.exportCanvas, rotW, rotH);
 }
 
-async function handleLoadImage(event) {
-  event.preventDefault();
-  const file = els.fileInput.files[0];
-  if (!file) {
-    setStatus("Choose a file before loading.", true);
-    return;
-  }
-
+async function loadFileIntoPreview(file) {
   state.isBusy = true;
   updateControls();
   setStatus(`Loading ${file.name} locally...`);
@@ -750,6 +755,16 @@ async function handleLoadImage(event) {
     state.isBusy = false;
     updateControls();
   }
+}
+
+async function handleLoadImage(event) {
+  event.preventDefault();
+  const file = els.fileInput.files[0];
+  if (!file) {
+    setStatus("Choose a file before loading.", true);
+    return;
+  }
+  await loadFileIntoPreview(file);
 }
 
 function rotate(delta) {
@@ -841,6 +856,7 @@ function handlePointerDown(event) {
   if (!state.previewImage || state.isBusy) {
     return;
   }
+  event.preventDefault();
   state.dragStart = getCanvasPointer(event);
   state.dragCurrent = state.dragStart;
   renderCanvas();
@@ -850,6 +866,7 @@ function handlePointerMove(event) {
   if (!state.dragStart) {
     return;
   }
+  event.preventDefault();
   const next = getCanvasPointer(event);
   const dx = (next.x - state.dragCurrent.x) * DRAG_SENSITIVITY;
   const dy = (next.y - state.dragCurrent.y) * DRAG_SENSITIVITY;
@@ -989,11 +1006,19 @@ function init() {
   renderCropAnalysis();
   requestAnimationFrame(animationFrame);
   els.uploadForm.addEventListener("submit", handleLoadImage);
-  els.fileInput.addEventListener("change", updateControls);
+  els.fileInput.addEventListener("change", () => {
+    if (els.fileInput.files && els.fileInput.files[0]) {
+      els.fileDropLabel.textContent = els.fileInput.files[0].name;
+    } else {
+      els.fileDropLabel.textContent = "Choose passport image or PDF";
+    }
+    updateControls();
+  });
   els.rotateLeft.addEventListener("click", () => rotate(270));
   els.rotateRight.addEventListener("click", () => rotate(90));
   els.resetAdjust.addEventListener("click", resetAdjustments);
   els.extractButton.addEventListener("click", handleExtraction);
+  els.extractButtonInline.addEventListener("click", handleExtraction);
   els.useFaceHint.addEventListener("change", updatePayloadView);
   els.microRotate.addEventListener("input", () => {
     state.microRotation = Number(els.microRotate.value);
@@ -1031,6 +1056,40 @@ function init() {
     renderCropAnalysis();
     updateControls();
   });
+  // ── File drag-and-drop on the upload zone ──────────────────────────
+  els.fileDrop.addEventListener("dragenter", (event) => {
+    event.preventDefault();
+    els.fileDrop.classList.add("file-drop-active");
+  });
+  els.fileDrop.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    els.fileDrop.classList.add("file-drop-active");
+  });
+  els.fileDrop.addEventListener("dragleave", (event) => {
+    if (!els.fileDrop.contains(event.relatedTarget)) {
+      els.fileDrop.classList.remove("file-drop-active");
+    }
+  });
+  els.fileDrop.addEventListener("drop", (event) => {
+    event.preventDefault();
+    els.fileDrop.classList.remove("file-drop-active");
+    if (state.isBusy) return;
+    const file = event.dataTransfer.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
+      showToast("Only image files and PDFs are supported.", "error");
+      setStatus("Unsupported file type dropped.", true);
+      return;
+    }
+    // Populate the file input exactly as if the user picked it via the dialog
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    els.fileInput.files = dt.files;
+    els.fileDropLabel.textContent = file.name;
+    updateControls();
+    setStatus(`"${file.name}" ready — click Load Image to preview.`);
+  });
+
   els.canvas.addEventListener("pointerdown", handlePointerDown);
   els.canvas.addEventListener("pointermove", handlePointerMove);
   els.canvas.addEventListener("pointerup", handlePointerUp);
