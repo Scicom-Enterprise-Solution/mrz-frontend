@@ -122,6 +122,29 @@ button {
   transition: transform 120ms ease, background 120ms ease, opacity 120ms ease;
 }
 
+.btn-secondary {
+  background: transparent;
+  color: var(--accent-strong);
+  border: 1.5px solid rgba(13, 107, 95, 0.35);
+  font-size: 13px;
+  padding: 9px 15px;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(13, 107, 95, 0.08);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.extract-inline {
+  margin-top: 10px;
+  width: 100%;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 14px 18px;
+  letter-spacing: 0.02em;
+}
+
 button:hover:not(:disabled) {
   background: var(--accent-strong);
   transform: translateY(-1px);
@@ -233,6 +256,7 @@ button:disabled {
   height: auto;
   display: block;
   cursor: grab;
+  touch-action: none;
 }
 
 #preview-canvas:active {
@@ -539,6 +563,17 @@ pre,
 
   .toolbar-group {
     justify-content: space-between;
+  }
+
+  /* On mobile the toolbar extract button is redundant — hide it;
+     the inline button below the sliders is the primary CTA */
+  #extract-button {
+    display: none;
+  }
+
+  .btn-secondary {
+    flex: 1;
+    text-align: center;
   }
 
 }

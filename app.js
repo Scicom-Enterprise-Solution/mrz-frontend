@@ -53,6 +53,7 @@ const els = {
   toastContainer: document.querySelector("#toast-container"),
   fileDrop: document.querySelector(".file-drop"),
   fileDropLabel: document.querySelector(".file-drop-label"),
+  extractButtonInline: document.querySelector("#extract-button-inline"),
 };
 
 let opencvReady = false;
@@ -397,6 +398,7 @@ function updateControls() {
   els.rotateRight.disabled = !hasImage || state.isBusy;
   els.resetAdjust.disabled = !hasImage || state.isBusy;
   els.extractButton.disabled = !hasImage || state.isBusy;
+  els.extractButtonInline.disabled = !hasImage || state.isBusy;
   const hasFile = els.fileInput.files && els.fileInput.files.length > 0;
   els.uploadButton.disabled = !hasFile || state.isBusy;
   els.fileInput.disabled = state.isBusy;
@@ -854,6 +856,7 @@ function handlePointerDown(event) {
   if (!state.previewImage || state.isBusy) {
     return;
   }
+  event.preventDefault();
   state.dragStart = getCanvasPointer(event);
   state.dragCurrent = state.dragStart;
   renderCanvas();
@@ -863,6 +866,7 @@ function handlePointerMove(event) {
   if (!state.dragStart) {
     return;
   }
+  event.preventDefault();
   const next = getCanvasPointer(event);
   const dx = (next.x - state.dragCurrent.x) * DRAG_SENSITIVITY;
   const dy = (next.y - state.dragCurrent.y) * DRAG_SENSITIVITY;
@@ -1014,6 +1018,7 @@ function init() {
   els.rotateRight.addEventListener("click", () => rotate(90));
   els.resetAdjust.addEventListener("click", resetAdjustments);
   els.extractButton.addEventListener("click", handleExtraction);
+  els.extractButtonInline.addEventListener("click", handleExtraction);
   els.useFaceHint.addEventListener("change", updatePayloadView);
   els.microRotate.addEventListener("input", () => {
     state.microRotation = Number(els.microRotate.value);
