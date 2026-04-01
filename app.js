@@ -44,6 +44,10 @@ const els = {
   uploadJson: document.querySelector("#upload-json"),
   resultJson: document.querySelector("#result-json"),
   analysisOutput: document.querySelector("#analysis-output"),
+  microRotateVal: document.querySelector("#micro-rotate-val"),
+  zoomVal: document.querySelector("#zoom-val"),
+  offsetXVal: document.querySelector("#offset-x-val"),
+  offsetYVal: document.querySelector("#offset-y-val"),
   statusText: document.querySelector("#status-text"),
   spinnerOverlay: document.querySelector("#spinner-overlay"),
   toastContainer: document.querySelector("#toast-container"),
@@ -408,6 +412,10 @@ function updateControls() {
   els.zoomRange.value = String(state.zoom);
   els.offsetXRange.value = String(state.offsetX);
   els.offsetYRange.value = String(state.offsetY);
+  els.microRotateVal.textContent = `${state.microRotation >= 0 ? "+" : ""}${state.microRotation.toFixed(1)}°`;
+  els.zoomVal.textContent = `${state.zoom.toFixed(2)}×`;
+  els.offsetXVal.textContent = `${state.offsetX >= 0 ? "+" : ""}${state.offsetX.toFixed(3)}`;
+  els.offsetYVal.textContent = `${state.offsetY >= 0 ? "+" : ""}${state.offsetY.toFixed(3)}`;
   updatePayloadView();
   if (els.spinnerOverlay) {
     els.spinnerOverlay.hidden = !state.isBusy;
