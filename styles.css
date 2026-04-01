@@ -88,6 +88,13 @@ h1 {
   border-radius: 18px;
   background: rgba(13, 107, 95, 0.05);
   cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+.file-drop-active {
+  border-color: var(--accent);
+  background: rgba(13, 107, 95, 0.13);
+  transform: scale(1.015);
 }
 
 .file-drop input {

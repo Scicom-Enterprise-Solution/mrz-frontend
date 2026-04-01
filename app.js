@@ -47,6 +47,8 @@ const els = {
   statusText: document.querySelector("#status-text"),
   spinnerOverlay: document.querySelector("#spinner-overlay"),
   toastContainer: document.querySelector("#toast-container"),
+  fileDrop: document.querySelector(".file-drop"),
+  fileDropLabel: document.querySelector(".file-drop-label"),
 };
 
 let opencvReady = false;
@@ -711,14 +713,7 @@ function renderExportCanvas() {
   renderImage(els.exportCanvas, rotW, rotH);
 }
 
-async function handleLoadImage(event) {
-  event.preventDefault();
-  const file = els.fileInput.files[0];
-  if (!file) {
-    setStatus("Choose a file before loading.", true);
-    return;
-  }
-
+async function loadFileIntoPreview(file) {
   state.isBusy = true;
   updateControls();
   setStatus(`Loading ${file.name} locally...`);
@@ -750,6 +745,16 @@ async function handleLoadImage(event) {
     state.isBusy = false;
     updateControls();
   }
+}
+
+async function handleLoadImage(event) {
+  event.preventDefault();
+  const file = els.fileInput.files[0];
+  if (!file) {
+    setStatus("Choose a file before loading.", true);
+    return;
+  }
+  await loadFileIntoPreview(file);
 }
 
 function rotate(delta) {
@@ -989,7 +994,14 @@ function init() {
   renderCropAnalysis();
   requestAnimationFrame(animationFrame);
   els.uploadForm.addEventListener("submit", handleLoadImage);
-  els.fileInput.addEventListener("change", updateControls);
+  els.fileInput.addEventListener("change", () => {
+    if (els.fileInput.files && els.fileInput.files[0]) {
+      els.fileDropLabel.textContent = els.fileInput.files[0].name;
+    } else {
+      els.fileDropLabel.textContent = "Choose passport image or PDF";
+    }
+    updateControls();
+  });
   els.rotateLeft.addEventListener("click", () => rotate(270));
   els.rotateRight.addEventListener("click", () => rotate(90));
   els.resetAdjust.addEventListener("click", resetAdjustments);
@@ -1031,6 +1043,40 @@ function init() {
     renderCropAnalysis();
     updateControls();
   });
+  // ── File drag-and-drop on the upload zone ──────────────────────────
+  els.fileDrop.addEventListener("dragenter", (event) => {
+    event.preventDefault();
+    els.fileDrop.classList.add("file-drop-active");
+  });
+  els.fileDrop.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    els.fileDrop.classList.add("file-drop-active");
+  });
+  els.fileDrop.addEventListener("dragleave", (event) => {
+    if (!els.fileDrop.contains(event.relatedTarget)) {
+      els.fileDrop.classList.remove("file-drop-active");
+    }
+  });
+  els.fileDrop.addEventListener("drop", (event) => {
+    event.preventDefault();
+    els.fileDrop.classList.remove("file-drop-active");
+    if (state.isBusy) return;
+    const file = event.dataTransfer.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
+      showToast("Only image files and PDFs are supported.", "error");
+      setStatus("Unsupported file type dropped.", true);
+      return;
+    }
+    // Populate the file input exactly as if the user picked it via the dialog
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    els.fileInput.files = dt.files;
+    els.fileDropLabel.textContent = file.name;
+    updateControls();
+    setStatus(`"${file.name}" ready — click Load Image to preview.`);
+  });
+
   els.canvas.addEventListener("pointerdown", handlePointerDown);
   els.canvas.addEventListener("pointermove", handlePointerMove);
   els.canvas.addEventListener("pointerup", handlePointerUp);
