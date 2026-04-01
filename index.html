@@ -11,11 +11,11 @@
       <section class="hero">
         <div>
           <p class="eyebrow">TD3 Passport MRZ</p>
-          <h1>Upload, align, extract.</h1>
+          <h1>Load, align, extract.</h1>
           <p class="lede">
-            Plain HTML and JavaScript frontend for the MRZ API. Adjust rotation,
-            zoom, and page position before extraction while keeping the upload
-            flow separate.
+            Plain HTML and JavaScript frontend for the MRZ API. Load an image
+            locally, adjust rotation, zoom, and page position, then run
+            extraction to upload and process in one step.
           </p>
         </div>
         <form id="upload-form" class="upload-panel">
@@ -29,10 +29,10 @@
             />
             <span class="file-drop-label">Choose passport image or PDF</span>
             <span class="file-drop-hint"
-              >Upload first, then adjust preview before extraction.</span
+              >Load locally, adjust preview, then run extraction.</span
             >
           </label>
-          <button id="upload-button" type="submit">Upload Document</button>
+          <button id="upload-button" type="submit">Load Image</button>
         </form>
       </section>
 
@@ -61,7 +61,7 @@
             <div class="viewer-meta">
               <div>
                 <strong id="doc-name">No document</strong>
-                <p id="doc-meta">Upload a file to begin.</p>
+                <p id="doc-meta">Load a file to begin.</p>
               </div>
               <div class="chip-row">
                 <span id="doc-id-chip" class="chip">document: -</span>
@@ -69,7 +69,12 @@
               </div>
             </div>
             <div id="viewer-frame" class="viewer-frame empty">
-              <canvas id="preview-canvas" width="720" height="480"></canvas>
+              <canvas id="preview-canvas"></canvas>
+              <canvas id="export-canvas" style="display:none"></canvas>
+              <div id="spinner-overlay" class="spinner-overlay" hidden>
+                <div class="spinner"></div>
+                <span class="spinner-label">Processing…</span>
+              </div>
             </div>
             <p class="viewer-help">
               Drag on the image to move it inside the working frame. Use the
@@ -175,6 +180,7 @@
         </div>
       </section>
     </main>
+    <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
     <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady()" onerror="onOpenCvError()">
     </script>
     <script src="app.js"></script>
