@@ -451,9 +451,15 @@ function resetAdjustments() {
   state.offsetY = 0;
   state.dragStart = null;
   state.dragCurrent = null;
+}
+
+function handleResetAdjust() {
+  state.rotation = 0;
+  resetAdjustments();
   renderCanvas();
   renderCropAnalysis();
   updateControls();
+  setStatus("Adjustments reset.");
 }
 
 function drawEmptyCanvas() {
@@ -868,8 +874,17 @@ function handlePointerMove(event) {
   }
   event.preventDefault();
   const next = getCanvasPointer(event);
-  const dx = (next.x - state.dragCurrent.x) * DRAG_SENSITIVITY;
-  const dy = (next.y - state.dragCurrent.y) * DRAG_SENSITIVITY;
+  const rawDx = (next.x - state.dragCurrent.x) * DRAG_SENSITIVITY;
+  const rawDy = (next.y - state.dragCurrent.y) * DRAG_SENSITIVITY;
+  // The canvas renders with ctx.rotate(totalAngle) applied before drawing the
+  // image offset, so the offset lives in the rotated (image) coordinate frame.
+  // Inverse-rotate the screen-space drag delta so dragging always matches the
+  // visual direction regardless of how the image is rotated.
+  const angle = -((state.rotation + state.microRotation) * Math.PI) / 180;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const dx = rawDx * cos - rawDy * sin;
+  const dy = rawDx * sin + rawDy * cos;
   state.offsetX = clamp(state.offsetX + dx, -OFFSET_LIMIT, OFFSET_LIMIT);
   state.offsetY = clamp(state.offsetY + dy, -OFFSET_Y_LIMIT, OFFSET_Y_LIMIT);
   state.dragCurrent = next;
@@ -1016,7 +1031,7 @@ function init() {
   });
   els.rotateLeft.addEventListener("click", () => rotate(270));
   els.rotateRight.addEventListener("click", () => rotate(90));
-  els.resetAdjust.addEventListener("click", resetAdjustments);
+  els.resetAdjust.addEventListener("click", handleResetAdjust);
   els.extractButton.addEventListener("click", handleExtraction);
   els.extractButtonInline.addEventListener("click", handleExtraction);
   els.useFaceHint.addEventListener("change", updatePayloadView);
