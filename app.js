@@ -68,6 +68,7 @@ const ZOOM_MIN = 1.0;
 const ZOOM_MAX = 2.2;
 const DRAG_SENSITIVITY = 0.35;
 const MRZ_FOCUS_HEIGHT = 0.140625;
+const MRZ_FOCUS_Y_OFFSET = 0.04;
 const BG_FILL = "#f6f0e5";
 
 const guidanceCanvas = document.createElement("canvas");
@@ -485,7 +486,7 @@ function drawCropRect(rectPx) {
 function drawWorkingFrameOverlay(targetWidth, targetHeight) {
   const bottomPad = targetHeight * 0.04;
   const zoneX = targetWidth * 0.01;
-  const zoneY = targetHeight * (1 - MRZ_FOCUS_HEIGHT) - bottomPad;
+  const zoneY = targetHeight * (1 - MRZ_FOCUS_HEIGHT) - bottomPad - (targetHeight * MRZ_FOCUS_Y_OFFSET);
   const zoneW = targetWidth * 0.98;
   const zoneH = targetHeight * MRZ_FOCUS_HEIGHT;
 
