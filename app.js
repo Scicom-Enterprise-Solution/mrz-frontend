@@ -451,9 +451,15 @@ function resetAdjustments() {
   state.offsetY = 0;
   state.dragStart = null;
   state.dragCurrent = null;
+}
+
+function handleResetAdjust() {
+  state.rotation = 0;
+  resetAdjustments();
   renderCanvas();
   renderCropAnalysis();
   updateControls();
+  setStatus("Adjustments reset.");
 }
 
 function drawEmptyCanvas() {
@@ -1025,7 +1031,7 @@ function init() {
   });
   els.rotateLeft.addEventListener("click", () => rotate(270));
   els.rotateRight.addEventListener("click", () => rotate(90));
-  els.resetAdjust.addEventListener("click", resetAdjustments);
+  els.resetAdjust.addEventListener("click", handleResetAdjust);
   els.extractButton.addEventListener("click", handleExtraction);
   els.extractButtonInline.addEventListener("click", handleExtraction);
   els.useFaceHint.addEventListener("change", updatePayloadView);
