@@ -63,7 +63,7 @@ const WORKING_FRAME_MARGIN_X = 0.04;
 const WORKING_FRAME_MARGIN_Y = 0.04;
 const TRANSFORM_PAD_RATIO = 0.14;
 const OFFSET_LIMIT = 0.2;
-const OFFSET_Y_LIMIT = 0.6; 
+const OFFSET_Y_LIMIT = 0.6;
 const ZOOM_MIN = 1.0;
 const ZOOM_MAX = 2.2;
 const DRAG_SENSITIVITY = 0.35;
@@ -521,114 +521,42 @@ ctx.fillText(label, textX, textY);
 ctx.restore();
 }
 // ── Shared render function for all three canvases ──────────────────
-// Renders current image with all transforms onto targetCanvas at the given size.
-// Returns the fit scale used for letterboxing.
-function renderImage(targetCanvas, targetW, targetH) {
+// ── Shared image render ─────────────────────────────────────────────────────
+// Identical transform pipeline to renderCanvas. Used by the export canvas and
+// the guidance canvas so all three always agree on geometry.
+function renderToCanvas(targetCanvas, targetW, targetH) {
   const tctx = targetCanvas.getContext("2d");
   targetCanvas.width = targetW;
   targetCanvas.height = targetH;
 
-  const image = state.previewImage;
-  if (!image) {
+  const img = state.previewImage;
+  if (!img) {
     tctx.fillStyle = BG_FILL;
     tctx.fillRect(0, 0, targetW, targetH);
-    return 1;
+    return;
   }
 
-  if (opencvReady) {
-    try {
-      return renderImageWithOpenCv(tctx, targetW, targetH, image);
-    } catch (err) {
-      console.warn("[renderImage] opencv failed, falling back:", err);
-    }
-  }
-  return renderImageFallback(tctx, targetW, targetH, image);
-}
-
-function renderImageWithOpenCv(tctx, targetW, targetH, image) {
-  const cv_mod = window.cv;
-  const mats = [];
-  const track = (m) => { mats.push(m); return m; };
-  try {
-    const srcCanvas = document.createElement("canvas");
-    srcCanvas.width = image.width;
-    srcCanvas.height = image.height;
-    srcCanvas.getContext("2d").drawImage(image, 0, 0);
-    const srcMat = track(cv_mod.imread(srcCanvas));
-
-    const rotMat = track(new cv_mod.Mat());
-    if (state.rotation === 90) cv_mod.rotate(srcMat, rotMat, cv_mod.ROTATE_90_CLOCKWISE);
-    else if (state.rotation === 180) cv_mod.rotate(srcMat, rotMat, cv_mod.ROTATE_180);
-    else if (state.rotation === 270) cv_mod.rotate(srcMat, rotMat, cv_mod.ROTATE_90_COUNTERCLOCKWISE);
-    else srcMat.copyTo(rotMat);
-
-    const rotW = rotMat.cols;
-    const rotH = rotMat.rows;
-    const fitScale = Math.min(targetW / rotW, targetH / rotH);
-    const fitW = Math.round(rotW * fitScale);
-    const fitH = Math.round(rotH * fitScale);
-    const resizedMat = track(new cv_mod.Mat());
-    cv_mod.resize(rotMat, resizedMat, new cv_mod.Size(fitW, fitH), 0, 0, cv_mod.INTER_LINEAR);
-
-    const bg = new cv_mod.Scalar(246, 240, 229, 255);
-    const vpMat = track(new cv_mod.Mat(targetH, targetW, cv_mod.CV_8UC4, bg));
-    const pasteX = Math.round((targetW - fitW) / 2);
-    const pasteY = Math.round((targetH - fitH) / 2);
-    const roi = track(vpMat.roi(new cv_mod.Rect(pasteX, pasteY, fitW, fitH)));
-    resizedMat.copyTo(roi);
-
-    const cx = targetW / 2 + state.offsetX * targetW;
-    const cy = targetH / 2 + state.offsetY * targetH;
-    const M = track(cv_mod.getRotationMatrix2D(new cv_mod.Point(cx, cy), state.microRotation, state.zoom));
-    const outMat = track(new cv_mod.Mat());
-    cv_mod.warpAffine(vpMat, outMat, M, new cv_mod.Size(targetW, targetH),
-      cv_mod.INTER_LINEAR, cv_mod.BORDER_CONSTANT, bg);
-
-    const offCanvas = document.createElement("canvas");
-    cv_mod.imshow(offCanvas, outMat);
-    tctx.clearRect(0, 0, targetW, targetH);
-    tctx.drawImage(offCanvas, 0, 0);
-
-    return fitScale;
-  } finally {
-    for (const m of mats) { try { m.delete(); } catch (_) {} }
-  }
-}
-
-function renderImageFallback(tctx, targetW, targetH, image) {
-  const swapAxes = state.rotation === 90 || state.rotation === 270;
-  const rotW = swapAxes ? image.height : image.width;
-  const rotH = swapAxes ? image.width : image.height;
-  const fitScale = Math.min(targetW / rotW, targetH / rotH);
-
-  const padX = Math.round(image.width * TRANSFORM_PAD_RATIO);
-  const padY = Math.round(image.height * TRANSFORM_PAD_RATIO);
-  const padCanvas = document.createElement("canvas");
-  padCanvas.width = image.width + padX * 2;
-  padCanvas.height = image.height + padY * 2;
-  const padCtx = padCanvas.getContext("2d");
-  padCtx.imageSmoothingEnabled = true;
-  padCtx.imageSmoothingQuality = "high";
-  padCtx.drawImage(image, padX, padY);
+  const totalAngle = (state.rotation + state.microRotation) * Math.PI / 180;
+  const cosA = Math.abs(Math.cos(totalAngle));
+  const sinA = Math.abs(Math.sin(totalAngle));
+  const rotW = img.width * cosA + img.height * sinA;
+  const rotH = img.width * sinA + img.height * cosA;
+  const baseScale = Math.min(targetW / rotW, targetH / rotH);
 
   tctx.clearRect(0, 0, targetW, targetH);
   tctx.fillStyle = BG_FILL;
   tctx.fillRect(0, 0, targetW, targetH);
   tctx.imageSmoothingEnabled = true;
   tctx.imageSmoothingQuality = "high";
+
   tctx.save();
   tctx.translate(targetW / 2, targetH / 2);
-  tctx.scale(fitScale, fitScale);
-  tctx.translate(state.offsetX * rotW, state.offsetY * rotH);
-  tctx.rotate((state.microRotation * Math.PI) / 180);
-  tctx.scale(state.zoom, state.zoom);
-  if (state.rotation === 90) tctx.rotate(Math.PI / 2);
-  else if (state.rotation === 180) tctx.rotate(Math.PI);
-  else if (state.rotation === 270) tctx.rotate(-Math.PI / 2);
-  tctx.drawImage(padCanvas, -padCanvas.width / 2, -padCanvas.height / 2);
+  tctx.rotate(totalAngle);
+  tctx.scale(baseScale * state.zoom, baseScale * state.zoom);
+  const dragX = state.offsetX * img.width;
+  const dragY = state.offsetY * img.height;
+  tctx.drawImage(img, -img.width / 2 + dragX, -img.height / 2 + dragY);
   tctx.restore();
-
-  return fitScale;
 }
 
 // ── Preview canvas (display resolution) ────────────────────────────
@@ -721,13 +649,17 @@ function loadLocalImage(file) {
 }
 
 // ── Export canvas (full original resolution, rendered once on click) ─
+// Canvas is sized to the rotated bounding box at native resolution so
+// baseScale inside renderToCanvas equals 1 and no letterboxing occurs.
 function renderExportCanvas() {
   if (!state.previewImage) return;
-  const image = state.previewImage;
-  const swapAxes = state.rotation === 90 || state.rotation === 270;
-  const rotW = swapAxes ? image.naturalHeight : image.naturalWidth;
-  const rotH = swapAxes ? image.naturalWidth : image.naturalHeight;
-  renderImage(els.exportCanvas, rotW, rotH);
+  const img = state.previewImage;
+  const totalAngle = (state.rotation + state.microRotation) * Math.PI / 180;
+  const cosA = Math.abs(Math.cos(totalAngle));
+  const sinA = Math.abs(Math.sin(totalAngle));
+  const canvasW = Math.round(img.naturalWidth * cosA + img.naturalHeight * sinA);
+  const canvasH = Math.round(img.naturalWidth * sinA + img.naturalHeight * cosA);
+  renderToCanvas(els.exportCanvas, canvasW, canvasH);
 }
 
 async function loadFileIntoPreview(file) {
@@ -915,7 +847,7 @@ function updateGuidance() {
   if (!state.previewImage) return;
   const w = state.canvasBounds.width || 320;
   const h = state.canvasBounds.height || 240;
-  renderImage(guidanceCanvas, w, h);
+  renderToCanvas(guidanceCanvas, w, h);
 
   if (!opencvReady) return;
   try {
