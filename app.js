@@ -14,7 +14,7 @@ const state = {
   canvasScale: 1,
   canvasBounds: { x: 0, y: 0, width: 0, height: 0 },
   isBusy: false,
-  guidance: { faceRects: null, mrzRect: null },
+  guidance: { faceRects: null, mrzRect: null, lineRects: null, mrzDetected: false, status: null, message: "", zone: null },
 };
 
 const els = {
@@ -492,31 +492,13 @@ function drawWorkingFrameOverlay(targetWidth, targetHeight) {
 
 ctx.save();
 ctx.setLineDash([8, 6]);
-ctx.strokeStyle = "rgba(13, 107, 95, 0.35)";
-ctx.lineWidth = 2;
-ctx.fillStyle = "rgba(13, 107, 95, 0.05)";
+ctx.strokeStyle = "rgba(0, 80, 40, 0.45)";
+ctx.lineWidth = 3;
+ctx.fillStyle = "rgba(0, 143, 76, 0.08)";
 ctx.fillRect(zoneX, zoneY, zoneW, zoneH);
-ctx.strokeRect(zoneX, zoneY, zoneW, zoneH);
 ctx.setLineDash([]);
-
-const label = "Align MRZ lines inside this box";
-ctx.font = '600 13px "Segoe UI", sans-serif';
-const textWidth = ctx.measureText(label).width;
-const textX = targetWidth / 2;
-const textY = zoneY - 15;
-const padX = 10, padH = 25;
-
-// Draw dark pill background behind text
-ctx.fillStyle = "rgba(0, 0, 0, 0.47)";
-ctx.beginPath();
-ctx.roundRect(textX - textWidth / 2 - padX, textY - padH + 4, textWidth + padX * 2, padH + 4, 6);
-ctx.fill();
-
-// Draw crisp white text on top
-ctx.fillStyle = "rgba(216, 255, 224, 0.94)";
-ctx.textAlign = "center";
-ctx.textBaseline = "bottom";
-ctx.fillText(label, textX, textY);
+ctx.strokeStyle = "#008f4c";
+ctx.strokeRect(zoneX, zoneY, zoneW, zoneH);
 
 ctx.restore();
 }
@@ -857,28 +839,338 @@ function updateGuidance() {
   }
 }
 
+// ── MRZ projection-profile peak finder ─────────────────────────────────────
+// Scans a 1-D Float32Array for distinct "runs" of values above
+// (maxVal * minRelHeight). Runs closer than minGapRows are merged.
+// Returns an array of { row, value, start, end } objects, one per peak.
+function findProjectionPeaks(profile, minRelHeight, minGapRows) {
+  let maxVal = 0;
+  for (let i = 0; i < profile.length; i++) {
+    if (profile[i] > maxVal) maxVal = profile[i];
+  }
+  if (maxVal === 0) return [];
+
+  const threshold = maxVal * minRelHeight;
+  const raw = [];
+  let inRun = false;
+  let runStart = 0;
+  let runPeakVal = 0;
+  let runPeakRow = 0;
+
+  for (let i = 0; i < profile.length; i++) {
+    if (profile[i] >= threshold) {
+      if (!inRun) {
+        inRun = true;
+        runStart = i;
+        runPeakVal = profile[i];
+        runPeakRow = i;
+      } else if (profile[i] > runPeakVal) {
+        runPeakVal = profile[i];
+        runPeakRow = i;
+      }
+    } else if (inRun) {
+      raw.push({ row: runPeakRow, value: runPeakVal, start: runStart, end: i - 1 });
+      inRun = false;
+    }
+  }
+  if (inRun) {
+    raw.push({ row: runPeakRow, value: runPeakVal, start: runStart, end: profile.length - 1 });
+  }
+
+  // Merge adjacent runs that are closer than minGapRows
+  const merged = [];
+  for (const p of raw) {
+    if (merged.length > 0 && p.start - merged[merged.length - 1].end < minGapRows) {
+      const prev = merged[merged.length - 1];
+      if (p.value > prev.value) {
+        merged[merged.length - 1] = { ...p, start: prev.start };
+      } else {
+        merged[merged.length - 1] = { ...prev, end: p.end };
+      }
+    } else {
+      merged.push({ ...p });
+    }
+  }
+  return merged;
+}
+
+// ── MRZ guidance detection ──────────────────────────────────────────────────
+// Reads ONLY from guidanceCanvas. Full pipeline:
+//   ROI → greyscale → Otsu (invert) → raw profile (density check)
+//   → horizontal dilation → dilated profile → peak detection
+//   → per-peak width + density filter → TD3 structural validation
+//   → directional edge-touch check → status + message.
+//
+// Filtering rejects false-positives (headers, signatures) by requiring every
+// candidate bar to span ≥ MIN_WIDTH_RATIO of the zone width AND carry enough
+// raw ink (MIN_DENSITY). Only bars that pass both filters are counted as MRZ lines.
+//
+// Sets: state.guidance.{status, message, mrzDetected, mrzRect, lineRects, zone}
 function runGuidanceDetection() {
-  // OpenCV reads ONLY from guidanceCanvas — never from preview or export.
-  // CascadeClassifier requires pre-loaded cascade XML files.
-  // To enable: load haarcascade XMLs via cv.FS_createDataFile,
-  // create cv.CascadeClassifier, and call detectMultiScale here.
   const cv_mod = window.cv;
-  const mats = [];
-  const track = (m) => { mats.push(m); return m; };
+  const w = guidanceCanvas.width;
+  const h = guidanceCanvas.height;
+  if (w === 0 || h === 0) return;
+
+  // ── 1. ROI geometry — keep in sync with drawWorkingFrameOverlay() ──────────
+  const bottomPad = h * 0.04;
+  const zoneX = Math.round(w * 0.01);
+  const zoneY = Math.max(0, Math.round(
+    h * (1 - MRZ_FOCUS_HEIGHT) - bottomPad - h * MRZ_FOCUS_Y_OFFSET
+  ));
+  const zoneW = Math.min(Math.round(w * 0.98), w - zoneX);
+  const zoneH = Math.min(Math.round(h * MRZ_FOCUS_HEIGHT), h - zoneY);
+
+  // Always reset so any early-return leaves consistent state
+  state.guidance.mrzDetected = false;
+  state.guidance.mrzRect     = null;
+  state.guidance.lineRects   = null;
+  state.guidance.status      = "NONE";
+  state.guidance.message     = "No MRZ detected";
+  state.guidance.zone        = { x: zoneX, y: zoneY, width: zoneW, height: zoneH };
+
+  if (zoneW <= 0 || zoneH <= 0) return;
+
+  // Detection thresholds
+  const MIN_WIDTH_RATIO       = 0.75; // bar must span ≥ 75 % of zone width
+  const MIN_DENSITY           = 0.03; // ≥ 3 % ink fill (rejects watermarks/noise)
+  const EDGE_PX               = 5;    // hard pixel margin for edge-touch detection (cut-off threshold)
+  const MAX_LINE_HEIGHT_RATIO = 0.30; // bar taller than 30 % of zone = header/logo
+  const TD3_MIN_SPAN_RATIO    = 0.90; // single bar must be ≥ 90 % wide to warn
+  const MIN_SYMMETRY          = 0.80; // both MRZ lines must match in width (±20 %)
+
+  let full = null, roi = null, gray = null, binary = null,
+      kernel = null, dilated = null;
+
   try {
-    const src = track(cv_mod.imread(guidanceCanvas));
-    const gray = track(new cv_mod.Mat());
-    cv_mod.cvtColor(src, gray, cv_mod.COLOR_RGBA2GRAY);
+    // ── 2. Extract ROI ────────────────────────────────────────────────────
+    full = cv_mod.imread(guidanceCanvas);
+    const roiView = full.roi(new cv_mod.Rect(zoneX, zoneY, zoneW, zoneH));
+    roi = roiView.clone(); // own copy — roiView is a non-owning header
+    roiView.delete();
+    full.delete(); full = null;
 
-    // Example integration point:
-    // const faces = new cv_mod.RectVector();
-    // faceClassifier.detectMultiScale(gray, faces);
-    // state.guidance.faceRects = rectVectorToArray(faces);
-    // faces.delete();
+    // ── 3. RGBA → greyscale ───────────────────────────────────────────────
+    gray = new cv_mod.Mat();
+    cv_mod.cvtColor(roi, gray, cv_mod.COLOR_RGBA2GRAY);
+    roi.delete(); roi = null;
 
-    state.guidance.imageSize = { width: gray.cols, height: gray.rows };
+    // ── 4. Otsu threshold, inverted (dark ink → white) ────────────────────
+    binary = new cv_mod.Mat();
+    cv_mod.threshold(
+      gray, binary, 0, 255,
+      cv_mod.THRESH_BINARY_INV + cv_mod.THRESH_OTSU
+    );
+    gray.delete(); gray = null;
+
+    const cols = binary.cols;
+    const rows = binary.rows;
+
+    // ── 5. Raw vertical profile from binary (used for density filter) ─────
+    // Keep binaryData in scope until rawProfile is fully built, then delete binary.
+    const binaryData = binary.data; // Uint8Array view — read BEFORE binary.delete()
+    const rawProfile = new Float32Array(rows);
+    for (let r = 0; r < rows; r++) {
+      let sum = 0;
+      const base = r * cols;
+      for (let c = 0; c < cols; c++) sum += binaryData[base + c];
+      rawProfile[r] = sum;
+    }
+    // rawProfile is now a standalone Float32Array — binary can be released.
+
+    // ── 6. Horizontal dilation — smear characters into solid bars ─────────
+    // Kernel width ≈ 4 % of zone width, minimum 15 px.
+    const kernelWidth = Math.max(15, Math.round(zoneW * 0.04));
+    kernel = cv_mod.getStructuringElement(
+      cv_mod.MORPH_RECT,
+      new cv_mod.Size(kernelWidth, 1)
+    );
+    dilated = new cv_mod.Mat();
+    cv_mod.dilate(binary, dilated, kernel);
+    binary.delete(); binary = null;
+    kernel.delete(); kernel = null;
+
+    // ── 7. Dilated vertical profile — used for peak detection ─────────────
+    const pxData = dilated.data; // Uint8Array view — read BEFORE dilated.delete()
+    const dilatedProfile = new Float32Array(rows);
+    for (let r = 0; r < rows; r++) {
+      let sum = 0;
+      const base = r * cols;
+      for (let c = 0; c < cols; c++) sum += pxData[base + c];
+      dilatedProfile[r] = sum;
+    }
+
+    // ── 8. Peak detection ─────────────────────────────────────────────────
+    const minGap = Math.max(2, Math.round(zoneH * 0.06));
+    const rawPeaks = findProjectionPeaks(dilatedProfile, 0.25, minGap);
+
+    // ── 9. Per-peak metrics (span + ink density) ──────────────────────────
+    //
+    // getBarSpan: leftmost and rightmost non-zero dilated column in the row band.
+    // Must be called while pxData (dilated.data) is still valid.
+    const getBarSpan = (startRow, endRow) => {
+      let left = cols;
+      let right = -1;
+      const endBound = Math.min(endRow, rows - 1);
+      for (let r = startRow; r <= endBound; r++) {
+        const base = r * cols;
+        for (let c = 0; c < cols; c++) {
+          if (pxData[base + c] > 0) {
+            if (c < left)  left  = c;
+            if (c > right) right = c;
+          }
+        }
+      }
+      return right >= 0 ? { left, right, span: right - left + 1 } : null;
+    };
+
+    // getBarDensity: average raw-ink fill ratio across the band (full zone width).
+    // Uses rawProfile (pre-dilation), which is already a Float32Array, so it
+    // remains valid regardless of when binary was deleted.
+    const getBarDensity = (startRow, endRow) => {
+      const endBound = Math.min(endRow, rows - 1);
+      const bandH = endBound - startRow + 1;
+      if (bandH <= 0 || cols === 0) return 0;
+      let total = 0;
+      for (let r = startRow; r <= endBound; r++) total += rawProfile[r];
+      return total / (255 * cols * bandH);
+    };
+
+    // ── 10. Multi-filter: reject headers, logos, signatures, and noise ─────
+    // Filter 1 (Width):   bar must span ≥ MIN_WIDTH_RATIO of zone width.
+    // Filter 2 (Density): must carry enough raw ink — rejects watermarks/noise.
+    // Filter 3 (Height):  bar taller than MAX_LINE_HEIGHT_RATIO × zoneH is a
+    //                     header, emblem, or photo region — reject it.
+    const validPeaks = rawPeaks
+      .map((p) => ({
+        ...p,
+        spanInfo:   getBarSpan(p.start, p.end),
+        density:    getBarDensity(p.start, p.end),
+        lineHeight: p.end - p.start,
+      }))
+      .filter((p) =>
+        p.spanInfo !== null &&
+        p.spanInfo.span / cols >= MIN_WIDTH_RATIO &&
+        p.density >= MIN_DENSITY &&
+        p.lineHeight / zoneH <= MAX_LINE_HEIGHT_RATIO
+      );
+
+    // pxData accesses are complete — release dilated now
+    dilated.delete(); dilated = null;
+
+    // ── 11. Status logic on validated peaks ──────────────────────────────
+    if (validPeaks.length === 0) {
+      state.guidance.status  = "NONE";
+      state.guidance.message = "No MRZ detected";
+
+    } else if (validPeaks.length === 1) {
+      const p = validPeaks[0];
+      // TD3 or Nothing: a lone bar must reach ≥ TD3_MIN_SPAN_RATIO of the zone
+      // width to earn an INCOMPLETE warning. Narrower bars are incidental text
+      // (e.g. a partial header) — silence them with NONE to avoid false alerts.
+      if (p.spanInfo.span / cols >= TD3_MIN_SPAN_RATIO) {
+        state.guidance.status  = "INCOMPLETE";
+        state.guidance.message = "Align MRZ — only 1 line visible";
+        state.guidance.mrzRect = {
+          x: zoneX, y: zoneY + p.start,
+          width: zoneW, height: Math.max(1, p.end - p.start),
+        };
+      } else {
+        state.guidance.status  = "NONE";
+        state.guidance.message = "No MRZ detected";
+      }
+
+    } else {
+      // Use the topmost two valid peaks
+      const [p1, p2] = validPeaks.slice(0, 2);
+      const relGap    = (p2.row - p1.row) / zoneH;
+      const similarity = Math.min(p1.value, p2.value) / Math.max(p1.value, p2.value);
+
+      // Spanning rect covering both bands (used for non-READY states)
+      state.guidance.mrzRect = {
+        x: zoneX, y: zoneY + p1.start,
+        width: zoneW, height: Math.max(1, p2.end - p1.start),
+      };
+
+      // Symmetry check: TD3 line 1 and line 2 have 44 characters each, so their
+      // pixel widths should be nearly identical. A ratio below MIN_SYMMETRY means
+      // one bar is significantly shorter — reject as misaligned / not a real MRZ.
+      const spanSymmetry = Math.min(p1.spanInfo.span, p2.spanInfo.span) /
+                           Math.max(p1.spanInfo.span, p2.spanInfo.span);
+
+      if (spanSymmetry < MIN_SYMMETRY) {
+        state.guidance.status  = "INCOMPLETE";
+        state.guidance.message = "Align MRZ \u2014 lines uneven";
+
+      } else if (relGap >= 0.15 && relGap <= 0.85 && similarity >= 0.20) {
+        // ── 12. Containment check ────────────────────────────────────────
+        // READY as long as both bars sit fully inside the guide zone (5 px margin).
+        // At minimum zoom the MRZ naturally spans the full box width, so BOTH
+        // edges touching simultaneously is not an error. However a single-side
+        // horizontal cut-off is always a panning mistake — flag it regardless of zoom.
+        const VERT_MARGIN  = 5;   // px from top/bottom of ROI
+        const atMinZoom    = state.zoom < 1.1;
+        const canZoomOut   = state.zoom > 1.2;
+
+        const minX    = Math.min(p1.spanInfo.left,  p2.spanInfo.left);
+        const maxX    = Math.max(p1.spanInfo.right, p2.spanInfo.right);
+        const topY    = p1.start; // relative to ROI top (0 = top of zone)
+        const bottomY = p2.end;
+
+        const leftTouching   = minX < EDGE_PX;
+        const rightTouching  = maxX > cols - 1 - EDGE_PX;
+        const topTouching    = topY < VERT_MARGIN;
+        const bottomTouching = bottomY > rows - 1 - VERT_MARGIN;
+
+        // Suppress the both-sides-touching case only at minimum zoom (natural fill).
+        // Any single-side cut-off is a pan error — always flagged.
+        const naturalFill = atMinZoom && leftTouching && rightTouching;
+        const hasCutOff   = !naturalFill && (leftTouching || rightTouching || topTouching || bottomTouching);
+
+        if (hasCutOff) {
+          // Give the most actionable message for the cut-off direction.
+          state.guidance.status = "CUT_OFF";
+          if (leftTouching && !rightTouching) {
+            state.guidance.message = "Move Image Right \u2192";
+          } else if (rightTouching && !leftTouching) {
+            state.guidance.message = "\u2190 Move Image Left";
+          } else if (leftTouching && rightTouching) {
+            state.guidance.message = canZoomOut ? "Zoom out \u2014 MRZ too wide" : "Move Image Down \u2193";
+          } else if (topTouching) {
+            state.guidance.message = "Move Image Down \u2193";
+          } else {
+            state.guidance.message = "Move Image Up \u2191";
+          }
+        } else {
+          // Both lines fully contained within the guide zone — ready to extract.
+          state.guidance.status      = "READY";
+          state.guidance.message     = "MRZ Ready \u2713";
+          state.guidance.mrzDetected = true;
+          state.guidance.lineRects = [
+            { x: zoneX, y: zoneY + p1.start, width: zoneW, height: Math.max(1, p1.end - p1.start) },
+            { x: zoneX, y: zoneY + p2.start, width: zoneW, height: Math.max(1, p2.end - p2.start) },
+          ];
+        }
+      } else {
+        // Two wide, symmetrical bars found but structural gap/similarity check
+        // still fails. Treat as INCOMPLETE without a rotation-specific message.
+        const hasBottomFace = Array.isArray(state.guidance.faceRects) &&
+          state.guidance.faceRects.some((r) => (r.y + r.height / 2) > h * 0.5);
+        state.guidance.status  = "INCOMPLETE";
+        state.guidance.message = hasBottomFace
+          ? "Passport upside down \u2014 please rotate"
+          : "Align MRZ inside the box";
+      }
+    }
+
   } finally {
-    for (const m of mats) { try { m.delete(); } catch (_) {} }
+    // Null-guarded cleanup — every Mat is freed even if an exception fires mid-pipeline.
+    try { if (full)    full.delete();    } catch (_) {}
+    try { if (roi)     roi.delete();     } catch (_) {}
+    try { if (gray)    gray.delete();    } catch (_) {}
+    try { if (binary)  binary.delete();  } catch (_) {}
+    try { if (kernel)  kernel.delete();  } catch (_) {}
+    try { if (dilated) dilated.delete(); } catch (_) {}
   }
 }
 
@@ -891,8 +1183,13 @@ function scheduleGuidance() {
 }
 
 function drawGuidanceOverlays(targetW, targetH) {
-  if (!state.guidance.faceRects && !state.guidance.mrzRect) return;
+  const status = state.guidance.status;
+  // Nothing to draw until the first detection pass has run
+  if (!status) return;
+
   ctx.save();
+
+  // Face rects — drawn first so MRZ overlay appears on top
   if (state.guidance.faceRects) {
     ctx.strokeStyle = "rgba(255, 165, 0, 0.8)";
     ctx.lineWidth = 2;
@@ -900,12 +1197,62 @@ function drawGuidanceOverlays(targetW, targetH) {
       ctx.strokeRect(r.x, r.y, r.width, r.height);
     }
   }
-  if (state.guidance.mrzRect) {
-    const r = state.guidance.mrzRect;
-    ctx.strokeStyle = "rgba(0, 200, 100, 0.8)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(r.x, r.y, r.width, r.height);
+
+  // Status-driven colour palette
+  const PALETTES = {
+    NONE:       { stroke: "rgba(220,  53,  69, 0.90)", fill: "rgba(220,  53,  69, 0.10)", pill: "rgba(160,  20,  35, 0.85)" },
+    INCOMPLETE: { stroke: "rgba(255, 193,   7, 0.90)", fill: "rgba(255, 193,   7, 0.10)", pill: "rgba(140, 100,   0, 0.85)" },
+    CUT_OFF:    { stroke: "rgba(255, 140,   0, 0.90)", fill: "rgba(255, 140,   0, 0.10)", pill: "rgba(160,  80,   0, 0.85)" },
+    READY:      { stroke: "rgba(  0, 210, 100, 0.95)", fill: "rgba(  0, 210, 100, 0.13)", pill: "rgba(  0, 110,  55, 0.85)" },
+  };
+  const pal = PALETTES[status] || PALETTES.NONE;
+
+  // ── Highlight rects ────────────────────────────────────────────────────────
+  // READY: draw each detected line separately (tighter, more informative).
+  // All other states: draw the single spanning mrzRect, or fall back to the
+  // full guide zone so there is always a visible colour cue.
+  ctx.fillStyle   = pal.fill;
+  ctx.strokeStyle = pal.stroke;
+  ctx.lineWidth   = 2.5;
+
+  if (status === "READY" && state.guidance.lineRects) {
+    ctx.setLineDash([]);
+    for (const r of state.guidance.lineRects) {
+      ctx.fillRect(r.x, r.y, r.width, r.height);
+      ctx.strokeRect(r.x, r.y, r.width, r.height);
+    }
+  } else {
+    const rect = state.guidance.mrzRect || state.guidance.zone;
+    if (rect) {
+      ctx.setLineDash([6, 4]);
+      ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+      ctx.setLineDash([]);
+    }
   }
+
+  // ── Status pill ────────────────────────────────────────────────────────────
+  // Painted above the guide zone — overwrites the static "Align MRZ lines"
+  // label from drawWorkingFrameOverlay (called before this function).
+  const zone    = state.guidance.zone;
+  const message = state.guidance.message;
+  if (zone && message) {
+    const textX = targetW / 2;
+    const textY = zone.y - 15;
+    ctx.font = '600 13px "Segoe UI", sans-serif';
+    const textW = ctx.measureText(message).width;
+    const padX  = 10;
+    const padH  = 25;
+    ctx.fillStyle = pal.pill;
+    ctx.beginPath();
+    ctx.roundRect(textX - textW / 2 - padX, textY - padH + 4, textW + padX * 2, padH + 4, 6);
+    ctx.fill();
+    ctx.fillStyle    = "#ffffff";
+    ctx.textAlign    = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(message, textX, textY);
+  }
+
   ctx.restore();
 }
 
