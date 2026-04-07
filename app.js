@@ -44,6 +44,7 @@ const els = {
   uploadJson: document.querySelector("#upload-json"),
   resultJson: document.querySelector("#result-json"),
   analysisOutput: document.querySelector("#analysis-output"),
+  liveGuidanceOutput: document.querySelector("#live-guidance-output"),
   microRotateVal: document.querySelector("#micro-rotate-val"),
   zoomVal: document.querySelector("#zoom-val"),
   offsetXVal: document.querySelector("#offset-x-val"),
@@ -57,6 +58,8 @@ const els = {
 };
 
 let opencvReady = false;
+let faceCascadeReady = false;
+let faceCascade = null;
 
 const ctx = els.canvas.getContext("2d");
 const WORKING_FRAME_MARGIN_X = 0.04;
@@ -393,6 +396,51 @@ function renderCropAnalysis() {
     .join("");
 }
 
+function renderLiveGuidance() {
+  if (!els.liveGuidanceOutput) return;
+
+  if (!state.previewImage) {
+    els.liveGuidanceOutput.innerHTML = '<p class="analysis-empty">Load a document to see live guidance.</p>';
+    return;
+  }
+
+  const mrzReady = state.guidance.status === "READY";
+  const faceCount = Array.isArray(state.guidance.faceRects) ? state.guidance.faceRects.length : 0;
+  const faceDetected = faceCount > 0;
+
+  const mrzDot = mrzReady ? "guidance-dot-ok" : "guidance-dot-warn";
+  const mrzVal = mrzReady ? "guidance-value-ok" : "guidance-value-warn";
+  const mrzMsg = mrzReady ? "Ready \u2713" : (state.guidance.message || "Not detected");
+
+  let faceDot, faceVal, faceMsg;
+  if (!faceCascadeReady) {
+    faceDot = "guidance-dot-warn";
+    faceVal = "guidance-value-muted";
+    faceMsg = "Loading cascade\u2026";
+  } else if (faceDetected) {
+    faceDot = "guidance-dot-ok";
+    faceVal = "guidance-value-ok";
+    faceMsg = `Detected (${faceCount})`;
+  } else {
+    faceDot = "guidance-dot-warn";
+    faceVal = "guidance-value-warn";
+    faceMsg = "Not detected";
+  }
+
+  els.liveGuidanceOutput.innerHTML = `
+    <div class="guidance-row">
+      <span class="guidance-dot ${mrzDot}"></span>
+      <span class="guidance-label">MRZ Lines</span>
+      <span class="${mrzVal}">${escapeHtml(mrzMsg)}</span>
+    </div>
+    <div class="guidance-row">
+      <span class="guidance-dot ${faceDot}"></span>
+      <span class="guidance-label">Face</span>
+      <span class="${faceVal}">${escapeHtml(faceMsg)}</span>
+    </div>
+  `;
+}
+
 function updateControls() {
   const hasImage = Boolean(state.previewImage);
   els.rotateLeft.disabled = !hasImage || state.isBusy;
@@ -459,6 +507,7 @@ function handleResetAdjust() {
   resetAdjustments();
   renderCanvas();
   renderCropAnalysis();
+  renderLiveGuidance();
   updateControls();
   setStatus("Adjustments reset.");
 }
@@ -662,11 +711,17 @@ async function loadFileIntoPreview(file) {
     state.offsetY = 0;
     state.dragStart = null;
     state.dragCurrent = null;
+    state.guidance.faceRects = null;
+    state.guidance.status = null;
+    state.guidance.mrzDetected = false;
+    state.guidance.mrzRect = null;
+    state.guidance.lineRects = null;
 
     els.uploadJson.textContent = "Not uploaded yet. Click Run Extraction to upload and extract.";
     els.resultJson.textContent = "No extraction yet.";
     renderAnalysis(null);
     renderCropAnalysis();
+    renderLiveGuidance();
     updateDocumentSummary();
     renderCanvas();
     setStatus(`Loaded ${file.name}. Adjust rotation/crop, then run extraction.`);
@@ -837,6 +892,7 @@ function updateGuidance() {
   } catch (err) {
     console.warn("[guidance] detection error:", err);
   }
+  renderLiveGuidance();
 }
 
 // ── MRZ projection-profile peak finder ─────────────────────────────────────
@@ -940,20 +996,36 @@ function runGuidanceDetection() {
   const MIN_SYMMETRY          = 0.80; // both MRZ lines must match in width (±20 %)
 
   let full = null, roi = null, gray = null, binary = null,
-      kernel = null, dilated = null;
+      kernel = null, dilated = null, grayFull = null;
 
   try {
-    // ── 2. Extract ROI ────────────────────────────────────────────────────
+    // ── 2. Read full frame → greyscale ────────────────────────────────────
     full = cv_mod.imread(guidanceCanvas);
-    const roiView = full.roi(new cv_mod.Rect(zoneX, zoneY, zoneW, zoneH));
-    roi = roiView.clone(); // own copy — roiView is a non-owning header
-    roiView.delete();
+    grayFull = new cv_mod.Mat();
+    cv_mod.cvtColor(full, grayFull, cv_mod.COLOR_RGBA2GRAY);
     full.delete(); full = null;
 
-    // ── 3. RGBA → greyscale ───────────────────────────────────────────────
-    gray = new cv_mod.Mat();
-    cv_mod.cvtColor(roi, gray, cv_mod.COLOR_RGBA2GRAY);
-    roi.delete(); roi = null;
+    // ── 2a. Face detection on full-frame grey ─────────────────────────────
+    if (faceCascadeReady && faceCascade) {
+      const faces = new cv_mod.RectVector();
+      faceCascade.detectMultiScale(
+        grayFull, faces, 1.1, 3, 0,
+        new cv_mod.Size(40, 40), new cv_mod.Size(0, 0)
+      );
+      const rects = [];
+      for (let i = 0; i < faces.size(); i++) {
+        const f = faces.get(i);
+        rects.push({ x: f.x, y: f.y, width: f.width, height: f.height });
+      }
+      state.guidance.faceRects = rects;
+      faces.delete();
+    }
+
+    // ── 3. Extract grey ROI for MRZ detection ────────────────────────────
+    const grayRoiView = grayFull.roi(new cv_mod.Rect(zoneX, zoneY, zoneW, zoneH));
+    gray = grayRoiView.clone();
+    grayRoiView.delete();
+    grayFull.delete(); grayFull = null;
 
     // ── 4. Otsu threshold, inverted (dark ink → white) ────────────────────
     binary = new cv_mod.Mat();
@@ -1165,12 +1237,13 @@ function runGuidanceDetection() {
 
   } finally {
     // Null-guarded cleanup — every Mat is freed even if an exception fires mid-pipeline.
-    try { if (full)    full.delete();    } catch (_) {}
-    try { if (roi)     roi.delete();     } catch (_) {}
-    try { if (gray)    gray.delete();    } catch (_) {}
-    try { if (binary)  binary.delete();  } catch (_) {}
-    try { if (kernel)  kernel.delete();  } catch (_) {}
-    try { if (dilated) dilated.delete(); } catch (_) {}
+    try { if (full)     full.delete();     } catch (_) {}
+    try { if (roi)      roi.delete();      } catch (_) {}
+    try { if (grayFull) grayFull.delete(); } catch (_) {}
+    try { if (gray)     gray.delete();     } catch (_) {}
+    try { if (binary)   binary.delete();   } catch (_) {}
+    try { if (kernel)   kernel.delete();   } catch (_) {}
+    try { if (dilated)  dilated.delete();  } catch (_) {}
   }
 }
 
@@ -1268,12 +1341,33 @@ function scheduleRender() {
   renderNeeded = true;
 }
 
-function _markOpenCvReady() {
+async function loadFaceCascade() {
+  try {
+    const response = await fetch(
+      "https://raw.githubusercontent.com/opencv/opencv/4.x/data/haarcascades/haarcascade_frontalface_default.xml"
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const buffer = await response.arrayBuffer();
+    const cv_mod = window.cv;
+    cv_mod.FS_createDataFile(
+      "/", "haarcascade_frontalface_default.xml",
+      new Uint8Array(buffer), true, false, false
+    );
+    faceCascade = new cv_mod.CascadeClassifier();
+    faceCascade.load("haarcascade_frontalface_default.xml");
+    faceCascadeReady = true;
+  } catch (err) {
+    console.warn("[face] Haar cascade unavailable:", err);
+  }
+}
+
+async function _markOpenCvReady() {
   opencvReady = true;
   if (els.opencvChip) {
     els.opencvChip.textContent = "opencv: ready";
     els.opencvChip.style.color = "";
   }
+  await loadFaceCascade();
   if (state.previewImage) renderCanvas();
 }
 
