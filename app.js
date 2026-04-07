@@ -1007,18 +1007,49 @@ function runGuidanceDetection() {
 
     // ── 2a. Face detection on full-frame grey ─────────────────────────────
     if (faceCascadeReady && faceCascade) {
+      const imgW = grayFull.cols;
+      const imgH = grayFull.rows;
+
+      // Equalise histogram so detection is robust to dark/bright scans
+      const eqGray = new cv_mod.Mat();
+      cv_mod.equalizeHist(grayFull, eqGray);
+
+      // Size bounds: face must be ≥10 % and ≤60 % of the shorter image dimension
+      const shortSide = Math.min(imgW, imgH);
+      const minFacePx = Math.max(50, Math.round(shortSide * 0.10));
+      const maxFacePx = Math.round(shortSide * 0.60);
+
       const faces = new cv_mod.RectVector();
       faceCascade.detectMultiScale(
-        grayFull, faces, 1.1, 3, 0,
-        new cv_mod.Size(40, 40), new cv_mod.Size(0, 0)
+        eqGray, faces,
+        1.15,  // scaleFactor  — fewer borderline scale hits than 1.1
+        6,     // minNeighbors — each candidate must be confirmed 6 times (was 3)
+        0,
+        new cv_mod.Size(minFacePx, minFacePx),
+        new cv_mod.Size(maxFacePx, maxFacePx)
       );
+      eqGray.delete();
+
       const rects = [];
       for (let i = 0; i < faces.size(); i++) {
         const f = faces.get(i);
+
+        // Aspect-ratio guard: real faces are roughly square (width/height 0.65–1.55)
+        const aspect = f.width / f.height;
+        if (aspect < 0.65 || aspect > 1.55) continue;
+
+        // Position guard: passport photo is always in the upper ~70 % of the page.
+        // Anything whose centre falls below that is a logo, stamp, or the MRZ zone.
+        const cy = f.y + f.height / 2;
+        if (cy > imgH * 0.70) continue;
+
         rects.push({ x: f.x, y: f.y, width: f.width, height: f.height });
       }
-      state.guidance.faceRects = rects;
       faces.delete();
+
+      // A passport has exactly one face — keep the largest surviving detection only.
+      rects.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+      state.guidance.faceRects = rects.slice(0, 1);
     }
 
     // ── 3. Extract grey ROI for MRZ detection ────────────────────────────
