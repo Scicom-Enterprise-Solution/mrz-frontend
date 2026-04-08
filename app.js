@@ -1375,7 +1375,7 @@ function scheduleRender() {
 async function loadFaceCascade() {
   try {
     const response = await fetch(
-      "https://raw.githubusercontent.com/opencv/opencv/4.x/data/haarcascades/haarcascade_frontalface_default.xml"
+      "assets/haarcascade_frontalface_default.xml"
     );
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const buffer = await response.arrayBuffer();
