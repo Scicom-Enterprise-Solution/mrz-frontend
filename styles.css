@@ -141,14 +141,21 @@ button {
   white-space: nowrap;
 }
 
-#extract-button {
-  flex: 1;
-}
-
 .btn-secondary:hover:not(:disabled) {
   background: rgba(13, 107, 95, 0.08);
   border-color: var(--accent);
   transform: translateY(-1px);
+}
+
+#extract-button {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+#extract-button:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
 }
 
 .extract-inline {

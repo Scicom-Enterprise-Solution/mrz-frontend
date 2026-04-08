@@ -46,14 +46,14 @@
             </button>
           </div>
           <div class="toolbar-group toolbar-actions">
-            <label class="toggle">
+            <!-- <label class="toggle">
               <input id="use-face-hint" type="checkbox" />
               <span>Use face hint</span>
-            </label>
+            </label> -->
             <button id="save-export-button" class="btn-secondary" type="button" disabled>
               Save Export
             </button>
-            <button id="extract-button" type="button" disabled>
+            <button id="extract-button" class="btn-secondary" type="button" disabled>
               Run Extraction
             </button>
           </div>
@@ -67,8 +67,9 @@
                 <p id="doc-meta">Load a file to begin.</p>
               </div>
               <div class="chip-row">
-                <span id="doc-id-chip" class="chip">document: -</span>
-                <span id="rotation-chip" class="chip">rotation: 0</span>
+                <span id="doc-id-chip" class="chip">Document: -</span>
+                <span id="rotation-chip" class="chip">Rotation: 0</span>
+                <span id="opencv-chip" class="chip">OpenCV: Loading…</span>
               </div>
             </div>
             <div id="viewer-frame" class="viewer-frame empty">
@@ -85,7 +86,7 @@
             </p>
             <div class="adjust-panel">
               <label>
-                <span class="slider-label-row"><span>Micro rotate</span><span id="micro-rotate-val" class="slider-value">0.0°</span></span>
+                <span class="slider-label-row"><span>Micro Rotate</span><span id="micro-rotate-val" class="slider-value">0.0°</span></span>
                 <input
                   id="micro-rotate"
                   type="range"

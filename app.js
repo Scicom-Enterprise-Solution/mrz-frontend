@@ -39,6 +39,7 @@ const els = {
   docMeta: document.querySelector("#doc-meta"),
   docIdChip: document.querySelector("#doc-id-chip"),
   rotationChip: document.querySelector("#rotation-chip"),
+  opencvChip: document.querySelector("#opencv-chip"),
   cropAnalysisOutput: document.querySelector("#crop-analysis-output"),
   requestJson: document.querySelector("#request-json"),
   uploadJson: document.querySelector("#upload-json"),
@@ -457,8 +458,8 @@ function updateControls() {
   els.zoomRange.disabled = !hasImage || state.isBusy;
   els.offsetXRange.disabled = !hasImage || state.isBusy;
   els.offsetYRange.disabled = !hasImage || state.isBusy;
-  els.rotationChip.textContent = `rotation: ${state.rotation}`;
-  els.docIdChip.textContent = `document: ${state.documentId || "-"}`;
+  els.rotationChip.textContent = `Rotation: ${state.rotation}`;
+  els.docIdChip.textContent = `Document: ${state.documentId || "-"}`;
   els.microRotate.value = String(state.microRotation);
   els.zoomRange.value = String(state.zoom);
   els.offsetXRange.value = String(state.offsetX);
@@ -482,13 +483,12 @@ function updateDocumentSummary() {
 
   if (state.upload) {
     els.docName.textContent = state.upload.filename;
-    els.docMeta.textContent =
-      `${state.upload.source_type} | ${state.upload.preview_width}x${state.upload.preview_height} | deduplicated=${state.upload.deduplicated}`;
+    els.docMeta.textContent = `Uploaded | ${state.upload.preview_width}x${state.upload.preview_height}`;
   } else if (state.localFile) {
     els.docName.textContent = state.localFile.name;
     const img = state.previewImage;
     els.docMeta.textContent = img
-      ? `local | ${img.naturalWidth}x${img.naturalHeight} | not uploaded yet`
+      ? `Local Image | ${img.naturalWidth}x${img.naturalHeight}`
       : "Loading...";
   }
 }
@@ -1409,7 +1409,7 @@ async function loadFaceCascade() {
 async function _markOpenCvReady() {
   opencvReady = true;
   if (els.opencvChip) {
-    els.opencvChip.textContent = "opencv: ready";
+    els.opencvChip.textContent = "OpenCV: Ready";
     els.opencvChip.style.color = "";
   }
   await loadFaceCascade();
@@ -1428,7 +1428,7 @@ window.onOpenCvReady = function () {
 
 window.onOpenCvError = function () {
   if (els.opencvChip) {
-    els.opencvChip.textContent = "opencv: unavailable";
+    els.opencvChip.textContent = "OpenCV: Unavailable";
     els.opencvChip.style.color = "var(--danger)";
   }
 };
@@ -1453,7 +1453,7 @@ function init() {
   els.resetAdjust.addEventListener("click", handleResetAdjust);
   els.extractButton.addEventListener("click", handleExtraction);
   els.saveExportButton.addEventListener("click", handleSaveExport);
-  els.useFaceHint.addEventListener("change", updatePayloadView);
+  if (els.useFaceHint) els.useFaceHint.addEventListener("change", updatePayloadView);
   els.microRotate.addEventListener("input", () => {
     state.microRotation = Number(els.microRotate.value);
     renderCanvas();
