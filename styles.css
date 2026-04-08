@@ -130,6 +130,21 @@ button {
   padding: 9px 15px;
 }
 
+.toolbar-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.toolbar-actions > button {
+  flex: 1;
+  white-space: nowrap;
+}
+
+#extract-button {
+  flex: 1;
+}
+
 .btn-secondary:hover:not(:disabled) {
   background: rgba(13, 107, 95, 0.08);
   border-color: var(--accent);
@@ -638,12 +653,6 @@ pre,
 
   .toolbar-group {
     justify-content: space-between;
-  }
-
-  /* On mobile the toolbar extract button is redundant — hide it;
-     the inline button below the sliders is the primary CTA */
-  #extract-button {
-    display: none;
   }
 
   .btn-secondary {

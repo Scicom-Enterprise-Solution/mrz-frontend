@@ -54,9 +54,7 @@ const els = {
   toastContainer: document.querySelector("#toast-container"),
   fileDrop: document.querySelector(".file-drop"),
   fileDropLabel: document.querySelector(".file-drop-label"),
-  extractButtonInline: document.querySelector("#extract-button-inline"),
   saveExportButton: document.querySelector("#save-export-button"),
-  saveExportButtonInline: document.querySelector("#save-export-button-inline"),
 };
 
 let opencvReady = false;
@@ -449,9 +447,7 @@ function updateControls() {
   els.rotateRight.disabled = !hasImage || state.isBusy;
   els.resetAdjust.disabled = !hasImage || state.isBusy;
   els.extractButton.disabled = !hasImage || state.isBusy;
-  els.extractButtonInline.disabled = !hasImage || state.isBusy;
   els.saveExportButton.disabled = !hasImage || state.isBusy;
-  els.saveExportButtonInline.disabled = !hasImage || state.isBusy;
   const hasFile = els.fileInput.files && els.fileInput.files.length > 0;
   els.uploadButton.disabled = !hasFile || state.isBusy;
   els.fileInput.disabled = state.isBusy;
@@ -1456,9 +1452,7 @@ function init() {
   els.rotateRight.addEventListener("click", () => rotate(90));
   els.resetAdjust.addEventListener("click", handleResetAdjust);
   els.extractButton.addEventListener("click", handleExtraction);
-  els.extractButtonInline.addEventListener("click", handleExtraction);
   els.saveExportButton.addEventListener("click", handleSaveExport);
-  els.saveExportButtonInline.addEventListener("click", handleSaveExport);
   els.useFaceHint.addEventListener("change", updatePayloadView);
   els.microRotate.addEventListener("input", () => {
     state.microRotation = Number(els.microRotate.value);
