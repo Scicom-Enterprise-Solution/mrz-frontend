@@ -130,19 +130,56 @@ button {
   padding: 9px 15px;
 }
 
+.toolbar-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.toolbar-actions > button {
+  flex: 1;
+  white-space: nowrap;
+}
+
 .btn-secondary:hover:not(:disabled) {
   background: rgba(13, 107, 95, 0.08);
   border-color: var(--accent);
   transform: translateY(-1px);
 }
 
+#extract-button {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+#extract-button:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
 .extract-inline {
-  margin-top: 10px;
-  width: 100%;
   font-size: 15px;
   font-weight: 700;
   padding: 14px 18px;
   letter-spacing: 0.02em;
+}
+
+.inline-action-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.inline-action-row .extract-inline {
+  flex: 1;
+}
+
+.save-export-inline {
+  flex-shrink: 0;
+  font-size: 13px;
+  padding: 14px 16px;
+  white-space: nowrap;
 }
 
 button:hover:not(:disabled) {
@@ -625,15 +662,28 @@ pre,
     justify-content: space-between;
   }
 
-  /* On mobile the toolbar extract button is redundant — hide it;
-     the inline button below the sliders is the primary CTA */
-  #extract-button {
-    display: none;
-  }
-
   .btn-secondary {
     flex: 1;
     text-align: center;
   }
 
+}
+
+@media (max-width: 600px) {
+  .viewer-meta {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 10px;
+  }
+
+  .viewer-meta > div:first-child {
+    text-align: center;
+  }
+
+  .chip-row {
+    justify-content: center;
+    gap: 6px;
+    margin-top: 4px;
+  }
 }

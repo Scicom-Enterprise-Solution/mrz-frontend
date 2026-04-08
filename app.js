@@ -39,6 +39,7 @@ const els = {
   docMeta: document.querySelector("#doc-meta"),
   docIdChip: document.querySelector("#doc-id-chip"),
   rotationChip: document.querySelector("#rotation-chip"),
+  opencvChip: document.querySelector("#opencv-chip"),
   cropAnalysisOutput: document.querySelector("#crop-analysis-output"),
   requestJson: document.querySelector("#request-json"),
   uploadJson: document.querySelector("#upload-json"),
@@ -54,7 +55,7 @@ const els = {
   toastContainer: document.querySelector("#toast-container"),
   fileDrop: document.querySelector(".file-drop"),
   fileDropLabel: document.querySelector(".file-drop-label"),
-  extractButtonInline: document.querySelector("#extract-button-inline"),
+  saveExportButton: document.querySelector("#save-export-button"),
 };
 
 let opencvReady = false;
@@ -447,7 +448,7 @@ function updateControls() {
   els.rotateRight.disabled = !hasImage || state.isBusy;
   els.resetAdjust.disabled = !hasImage || state.isBusy;
   els.extractButton.disabled = !hasImage || state.isBusy;
-  els.extractButtonInline.disabled = !hasImage || state.isBusy;
+  els.saveExportButton.disabled = !hasImage || state.isBusy;
   const hasFile = els.fileInput.files && els.fileInput.files.length > 0;
   els.uploadButton.disabled = !hasFile || state.isBusy;
   els.fileInput.disabled = state.isBusy;
@@ -457,8 +458,8 @@ function updateControls() {
   els.zoomRange.disabled = !hasImage || state.isBusy;
   els.offsetXRange.disabled = !hasImage || state.isBusy;
   els.offsetYRange.disabled = !hasImage || state.isBusy;
-  els.rotationChip.textContent = `rotation: ${state.rotation}`;
-  els.docIdChip.textContent = `document: ${state.documentId || "-"}`;
+  els.rotationChip.textContent = `Rotation: ${state.rotation}`;
+  els.docIdChip.textContent = `Document: ${state.documentId || "-"}`;
   els.microRotate.value = String(state.microRotation);
   els.zoomRange.value = String(state.zoom);
   els.offsetXRange.value = String(state.offsetX);
@@ -482,13 +483,12 @@ function updateDocumentSummary() {
 
   if (state.upload) {
     els.docName.textContent = state.upload.filename;
-    els.docMeta.textContent =
-      `${state.upload.source_type} | ${state.upload.preview_width}x${state.upload.preview_height} | deduplicated=${state.upload.deduplicated}`;
+    els.docMeta.textContent = `Uploaded | ${state.upload.preview_width}x${state.upload.preview_height}`;
   } else if (state.localFile) {
     els.docName.textContent = state.localFile.name;
     const img = state.previewImage;
     els.docMeta.textContent = img
-      ? `local | ${img.naturalWidth}x${img.naturalHeight} | not uploaded yet`
+      ? `Local Image | ${img.naturalWidth}x${img.naturalHeight}`
       : "Loading...";
   }
 }
@@ -755,6 +755,20 @@ function rotate(delta) {
   setStatus(`Rotation set to ${state.rotation} degrees.`);
 }
 
+
+function handleSaveExport() {
+  if (!state.previewImage) return;
+  renderExportCanvas();
+  const baseName = state.localFile ? state.localFile.name.replace(/\.[^.]+$/, "") : "export";
+  const filename = `${baseName}_adjusted.jpg`;
+  const dataUrl = els.exportCanvas.toDataURL("image/jpeg", 0.95);
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = filename;
+  link.click();
+  setStatus(`Saved export as ${filename}.`);
+  showToast(`Saved ${filename}`, "success");
+}
 
 async function handleExtraction() {
   if (!state.previewImage || !state.localFile) {
@@ -1395,7 +1409,7 @@ async function loadFaceCascade() {
 async function _markOpenCvReady() {
   opencvReady = true;
   if (els.opencvChip) {
-    els.opencvChip.textContent = "opencv: ready";
+    els.opencvChip.textContent = "OpenCV: Ready";
     els.opencvChip.style.color = "";
   }
   await loadFaceCascade();
@@ -1414,7 +1428,7 @@ window.onOpenCvReady = function () {
 
 window.onOpenCvError = function () {
   if (els.opencvChip) {
-    els.opencvChip.textContent = "opencv: unavailable";
+    els.opencvChip.textContent = "OpenCV: Unavailable";
     els.opencvChip.style.color = "var(--danger)";
   }
 };
@@ -1438,8 +1452,8 @@ function init() {
   els.rotateRight.addEventListener("click", () => rotate(90));
   els.resetAdjust.addEventListener("click", handleResetAdjust);
   els.extractButton.addEventListener("click", handleExtraction);
-  els.extractButtonInline.addEventListener("click", handleExtraction);
-  els.useFaceHint.addEventListener("change", updatePayloadView);
+  els.saveExportButton.addEventListener("click", handleSaveExport);
+  if (els.useFaceHint) els.useFaceHint.addEventListener("change", updatePayloadView);
   els.microRotate.addEventListener("input", () => {
     state.microRotation = Number(els.microRotate.value);
     renderCanvas();
