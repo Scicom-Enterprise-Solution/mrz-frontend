@@ -1,4 +1,3 @@
-const BASE_API_URL = "https://mrz.scicom.my"; // remove this after deploying
 const state = {
   upload: null,
   documentId: null,
@@ -108,7 +107,7 @@ function clamp(value, min, max) {
 }
 
 function getPreviewUrl(documentId) {
-  return `${BASE_API_URL}/api/documents/${documentId}/preview`;
+  return `/api/documents/${documentId}/preview`;
 }
 
 function getRotatedImageSize() {
@@ -792,7 +791,7 @@ async function handleExtraction() {
     const formData = new FormData();
     formData.append("file", blob, filename);
 
-    const uploadResponse = await fetch(`${BASE_API_URL}/api/uploads`, {
+    const uploadResponse = await fetch(`/api/uploads`, {
       method: "POST",
       body: formData,
     });
@@ -815,7 +814,7 @@ async function handleExtraction() {
       enable_correction: false,
       use_face_hint: false,
     };
-    const extractionResponse = await fetch(`${BASE_API_URL}/api/extractions`, {
+    const extractionResponse = await fetch(`/api/extractions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(extractionPayload),
