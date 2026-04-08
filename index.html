@@ -50,6 +50,9 @@
               <input id="use-face-hint" type="checkbox" />
               <span>Use face hint</span>
             </label>
+            <button id="save-export-button" class="btn-secondary" type="button" disabled>
+              Save Export
+            </button>
             <button id="extract-button" type="button" disabled>
               Run Extraction
             </button>
@@ -130,9 +133,14 @@
                 />
               </label>
             </div>
-            <button id="extract-button-inline" class="extract-inline" type="button" disabled>
-              Run Extraction
-            </button>
+            <div class="inline-action-row">
+              <button id="save-export-button-inline" class="btn-secondary save-export-inline" type="button" disabled>
+                Save Export
+              </button>
+              <button id="extract-button-inline" class="extract-inline" type="button" disabled>
+                Run Extraction
+              </button>
+            </div>
           </section>
 
           <aside class="side-panel">

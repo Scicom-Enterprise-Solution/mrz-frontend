@@ -137,12 +137,27 @@ button {
 }
 
 .extract-inline {
-  margin-top: 10px;
-  width: 100%;
   font-size: 15px;
   font-weight: 700;
   padding: 14px 18px;
   letter-spacing: 0.02em;
+}
+
+.inline-action-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.inline-action-row .extract-inline {
+  flex: 1;
+}
+
+.save-export-inline {
+  flex-shrink: 0;
+  font-size: 13px;
+  padding: 14px 16px;
+  white-space: nowrap;
 }
 
 button:hover:not(:disabled) {
