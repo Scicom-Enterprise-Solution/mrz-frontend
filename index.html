@@ -11,11 +11,11 @@
       <section class="hero">
         <div>
           <p class="eyebrow">TD3 Passport MRZ</p>
-          <h1>Upload, align, extract.</h1>
+          <h1>Load, align, extract.</h1>
           <p class="lede">
-            Plain HTML and JavaScript frontend for the MRZ API. Adjust rotation,
-            zoom, and page position before extraction while keeping the upload
-            flow separate.
+            Plain HTML and JavaScript frontend for the MRZ API. Load an image
+            locally, adjust rotation, zoom, and page position, then run
+            extraction to upload and process in one step.
           </p>
         </div>
         <form id="upload-form" class="upload-panel">
@@ -29,28 +29,31 @@
             />
             <span class="file-drop-label">Choose passport image or PDF</span>
             <span class="file-drop-hint"
-              >Upload first, then adjust preview before extraction.</span
+              >Load locally, adjust preview, then run extraction.</span
             >
           </label>
-          <button id="upload-button" type="submit">Upload Document</button>
+          <button id="upload-button" type="submit">Load Image</button>
         </form>
       </section>
 
       <section class="workspace">
         <div class="toolbar">
           <div class="toolbar-group">
-            <button id="rotate-left" type="button" disabled>Rotate -90</button>
-            <button id="rotate-right" type="button" disabled>Rotate +90</button>
-            <button id="reset-adjust" type="button" disabled>
+            <button id="rotate-left" class="btn-secondary" type="button" disabled>Rotate -90</button>
+            <button id="rotate-right" class="btn-secondary" type="button" disabled>Rotate +90</button>
+            <button id="reset-adjust" class="btn-secondary" type="button" disabled>
               Reset Adjust
             </button>
           </div>
-          <div class="toolbar-group">
-            <label class="toggle">
+          <div class="toolbar-group toolbar-actions">
+            <!-- <label class="toggle">
               <input id="use-face-hint" type="checkbox" />
               <span>Use face hint</span>
-            </label>
-            <button id="extract-button" type="button" disabled>
+            </label> -->
+            <button id="save-export-button" class="btn-secondary" type="button" disabled>
+              Save Export
+            </button>
+            <button id="extract-button" class="btn-secondary" type="button" disabled>
               Run Extraction
             </button>
           </div>
@@ -61,15 +64,21 @@
             <div class="viewer-meta">
               <div>
                 <strong id="doc-name">No document</strong>
-                <p id="doc-meta">Upload a file to begin.</p>
+                <p id="doc-meta">Load a file to begin.</p>
               </div>
               <div class="chip-row">
-                <span id="doc-id-chip" class="chip">document: -</span>
-                <span id="rotation-chip" class="chip">rotation: 0</span>
+                <span id="doc-id-chip" class="chip">Document: -</span>
+                <span id="rotation-chip" class="chip">Rotation: 0</span>
+                <span id="opencv-chip" class="chip">OpenCV: Loading…</span>
               </div>
             </div>
             <div id="viewer-frame" class="viewer-frame empty">
-              <canvas id="preview-canvas" width="720" height="480"></canvas>
+              <canvas id="preview-canvas"></canvas>
+              <canvas id="export-canvas" style="display:none"></canvas>
+              <div id="spinner-overlay" class="spinner-overlay" hidden>
+                <div class="spinner"></div>
+                <span class="spinner-label">Processing…</span>
+              </div>
             </div>
             <p class="viewer-help">
               Drag on the image to move it inside the working frame. Use the
@@ -77,7 +86,7 @@
             </p>
             <div class="adjust-panel">
               <label>
-                <span>Micro rotate</span>
+                <span class="slider-label-row"><span>Micro Rotate</span><span id="micro-rotate-val" class="slider-value">0.0°</span></span>
                 <input
                   id="micro-rotate"
                   type="range"
@@ -88,7 +97,7 @@
                 />
               </label>
               <label>
-                <span>Zoom</span>
+                <span class="slider-label-row"><span>Zoom</span><span id="zoom-val" class="slider-value">1.00×</span></span>
                 <div class="zoom-control">
                   <button id="zoom-out" type="button" disabled>-</button>
                   <input
@@ -103,7 +112,7 @@
                 </div>
               </label>
               <label>
-                <span>Left / Right</span>
+                <span class="slider-label-row"><span>Left / Right</span><span id="offset-x-val" class="slider-value">0.000</span></span>
                 <input
                   id="offset-x-range"
                   type="range"
@@ -114,7 +123,7 @@
                 />
               </label>
               <label>
-                <span>Top / Bottom</span>
+                <span class="slider-label-row"><span>Top / Bottom</span><span id="offset-y-val" class="slider-value">0.000</span></span>
                 <input
                   id="offset-y-range"
                   type="range"
@@ -132,6 +141,12 @@
               <h2>Adjustment Analysis</h2>
               <div id="crop-analysis-output" class="analysis-output">
                 <p class="analysis-empty">No document loaded.</p>
+              </div>
+            </section>
+            <section class="panel-block">
+              <h2>Live Guidance</h2>
+              <div id="live-guidance-output" class="live-guidance-output">
+                <p class="analysis-empty">Load a document to see live guidance.</p>
               </div>
             </section>
             <details class="panel-block collapsible-block">
@@ -175,7 +190,9 @@
         </div>
       </section>
     </main>
-
+    <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady()" onerror="onOpenCvError()">
+    </script>
     <script src="app.js"></script>
   </body>
 </html>

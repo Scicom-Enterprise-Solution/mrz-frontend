@@ -88,6 +88,13 @@ h1 {
   border-radius: 18px;
   background: rgba(13, 107, 95, 0.05);
   cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+.file-drop-active {
+  border-color: var(--accent);
+  background: rgba(13, 107, 95, 0.13);
+  transform: scale(1.015);
 }
 
 .file-drop input {
@@ -113,6 +120,66 @@ button {
   color: #fff;
   cursor: pointer;
   transition: transform 120ms ease, background 120ms ease, opacity 120ms ease;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--accent-strong);
+  border: 1.5px solid rgba(13, 107, 95, 0.35);
+  font-size: 13px;
+  padding: 9px 15px;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.toolbar-actions > button {
+  flex: 1;
+  white-space: nowrap;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(13, 107, 95, 0.08);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+#extract-button {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+#extract-button:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.extract-inline {
+  font-size: 15px;
+  font-weight: 700;
+  padding: 14px 18px;
+  letter-spacing: 0.02em;
+}
+
+.inline-action-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.inline-action-row .extract-inline {
+  flex: 1;
+}
+
+.save-export-inline {
+  flex-shrink: 0;
+  font-size: 13px;
+  padding: 14px 16px;
+  white-space: nowrap;
 }
 
 button:hover:not(:disabled) {
@@ -201,13 +268,15 @@ button:disabled {
 .viewer-frame {
   border-radius: 22px;
   overflow: hidden;
-  height: 540px;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  position: relative;
   background:
     linear-gradient(45deg, rgba(13, 107, 95, 0.07) 25%, transparent 25%, transparent 75%, rgba(13, 107, 95, 0.07) 75%),
     linear-gradient(45deg, rgba(13, 107, 95, 0.07) 25%, transparent 25%, transparent 75%, rgba(13, 107, 95, 0.07) 75%);
   background-position: 0 0, 14px 14px;
   background-size: 28px 28px;
-  border: 1px solid var(--line);
+  border: 1.5px solid rgba(13, 107, 95, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -218,10 +287,13 @@ button:disabled {
 }
 
 #preview-canvas {
-  width: 100%;
-  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
   display: block;
   cursor: grab;
+  touch-action: none;
 }
 
 #preview-canvas:active {
@@ -247,8 +319,23 @@ button:disabled {
   font-size: 14px;
 }
 
+.slider-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.slider-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-strong);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
 .adjust-panel input[type="range"] {
   width: 100%;
+  accent-color: var(--accent);
 }
 
 .zoom-control {
@@ -408,6 +495,158 @@ pre,
   color: var(--danger);
 }
 
+/* ── Spinner overlay ───────────────────────────────────────────────── */
+.spinner-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(246, 240, 229, 0.82);
+  backdrop-filter: blur(4px);
+  border-radius: 22px;
+  z-index: 10;
+}
+
+.spinner-overlay[hidden] {
+  display: none;
+}
+
+.spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid rgba(13, 107, 95, 0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+
+/* ── Toast notifications ───────────────────────────────────────────── */
+.toast-container {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 18px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  pointer-events: auto;
+  animation: toast-in 0.25s ease forwards;
+  max-width: 320px;
+}
+
+.toast-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.toast-success {
+  background: var(--accent);
+}
+
+.toast-error {
+  background: var(--danger);
+}
+
+.toast-dismissing {
+  animation: toast-out 0.3s ease forwards;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(16px); }
+}
+
+/* ── Live Guidance card ─────────────────────────────────────────────── */
+.live-guidance-output {
+  display: grid;
+  gap: 6px;
+}
+
+.guidance-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.guidance-row:last-child {
+  border-bottom: none;
+}
+
+.guidance-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.guidance-dot-ok {
+  background: #00c463;
+  box-shadow: 0 0 6px rgba(0, 196, 99, 0.55);
+}
+
+.guidance-dot-warn {
+  background: #e04040;
+}
+
+.guidance-label {
+  flex: 1;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.guidance-value-ok {
+  font-weight: 700;
+  color: var(--accent-strong);
+  font-size: 13px;
+}
+
+.guidance-value-warn {
+  font-weight: 700;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.guidance-value-muted {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 @media (max-width: 1024px) {
   .hero,
   .workspace-grid {
@@ -423,7 +662,28 @@ pre,
     justify-content: space-between;
   }
 
-  .viewer-frame {
-    height: 420px;
+  .btn-secondary {
+    flex: 1;
+    text-align: center;
+  }
+
+}
+
+@media (max-width: 600px) {
+  .viewer-meta {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 10px;
+  }
+
+  .viewer-meta > div:first-child {
+    text-align: center;
+  }
+
+  .chip-row {
+    justify-content: center;
+    gap: 6px;
+    margin-top: 4px;
   }
 }
