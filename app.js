@@ -1005,6 +1005,8 @@ function runGuidanceDetection() {
   const MIN_DENSITY           = 0.03; // ≥ 3 % ink fill (rejects watermarks/noise)
   const EDGE_PX               = 5;    // hard pixel margin for edge-touch detection (cut-off threshold)
   const MAX_LINE_HEIGHT_RATIO = 0.30; // bar taller than 30 % of zone = header/logo
+  const MIN_LINE_HEIGHT_RATIO = 0.03; // bar shorter than 3 % of zone = thin stripe / hologram line
+  const EDGE_EXCLUSION_RATIO  = 0.07; // ignore top/bottom 7 % of ROI — catches hologram bands & page-edge lines
   const TD3_MIN_SPAN_RATIO    = 0.90; // single bar must be ≥ 90 % wide to warn
   const MIN_SYMMETRY          = 0.80; // both MRZ lines must match in width (±20 %)
 
@@ -1164,12 +1166,19 @@ function runGuidanceDetection() {
         density:    getBarDensity(p.start, p.end),
         lineHeight: p.end - p.start,
       }))
-      .filter((p) =>
-        p.spanInfo !== null &&
-        p.spanInfo.span / cols >= MIN_WIDTH_RATIO &&
-        p.density >= MIN_DENSITY &&
-        p.lineHeight / zoneH <= MAX_LINE_HEIGHT_RATIO
-      );
+      .filter((p) => {
+        const topMargin    = rows * EDGE_EXCLUSION_RATIO;
+        const bottomMargin = rows * (1 - EDGE_EXCLUSION_RATIO);
+        return (
+          p.spanInfo !== null &&
+          p.spanInfo.span / cols >= MIN_WIDTH_RATIO &&
+          p.density >= MIN_DENSITY &&
+          p.lineHeight / zoneH <= MAX_LINE_HEIGHT_RATIO &&
+          p.lineHeight >= Math.max(2, rows * MIN_LINE_HEIGHT_RATIO) && // reject thin hologram/edge stripes
+          p.start >= topMargin &&   // reject bars starting in the top exclusion band
+          p.end   <= bottomMargin   // reject bars ending in the bottom exclusion band
+        );
+      });
 
     // pxData accesses are complete — release dilated now
     dilated.delete(); dilated = null;
@@ -1541,3 +1550,20 @@ function init() {
 }
 
 init();
+
+// ── OpenCV cache-reload safety net ──────────────────────────────────────────
+// On a hard reload the browser may serve opencv.js from cache before this
+// script has run, so the onload="onOpenCvReady()" fires when
+// window.onOpenCvReady is not yet defined and the call is silently dropped.
+// Using `defer` on the script tag (index.html) removes the race for the
+// normal reload path, but as an extra guard we also check here: if cv is
+// already present and fully initialised, bootstrap immediately.
+if (!opencvReady && typeof cv !== "undefined" && cv) {
+  if (cv.Mat) {
+    _markOpenCvReady();
+  } else {
+    // WASM fetched but not yet compiled — hook the runtime callback.
+    // _markOpenCvReady will run once wasm compilation finishes.
+    cv["onRuntimeInitialized"] = _markOpenCvReady;
+  }
+}
