@@ -70,6 +70,7 @@ const OFFSET_Y_LIMIT = 0.6;
 const ZOOM_MIN = 1.0;
 const ZOOM_MAX = 2.2;
 const DRAG_SENSITIVITY = 0.35;
+const CAPTURE_ASPECT_RATIO = 4 / 3;
 const MRZ_FOCUS_HEIGHT = 0.140625;
 const MRZ_FOCUS_Y_OFFSET = 0.04;
 const BG_FILL = "#f6f0e5";
@@ -684,11 +685,15 @@ function loadLocalImage(file) {
 function renderExportCanvas() {
   if (!state.previewImage) return;
   const img = state.previewImage;
-  const totalAngle = (state.rotation + state.microRotation) * Math.PI / 180;
-  const cosA = Math.abs(Math.cos(totalAngle));
-  const sinA = Math.abs(Math.sin(totalAngle));
-  const canvasW = Math.round(img.naturalWidth * cosA + img.naturalHeight * sinA);
-  const canvasH = Math.round(img.naturalWidth * sinA + img.naturalHeight * cosA);
+  const sourceAspect = img.naturalWidth / img.naturalHeight;
+  let canvasW, canvasH;
+  if (sourceAspect >= CAPTURE_ASPECT_RATIO) {
+    canvasH = img.naturalHeight;
+    canvasW = Math.round(img.naturalHeight * CAPTURE_ASPECT_RATIO);
+  } else {
+    canvasW = img.naturalWidth;
+    canvasH = Math.round(img.naturalWidth / CAPTURE_ASPECT_RATIO);
+  }
   renderToCanvas(els.exportCanvas, canvasW, canvasH);
 }
 
