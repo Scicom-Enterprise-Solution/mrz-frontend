@@ -1003,7 +1003,6 @@ function runGuidanceDetection() {
   // Detection thresholds
   const MIN_WIDTH_RATIO       = 0.75; // bar must span ≥ 75 % of zone width
   const MIN_DENSITY           = 0.03; // ≥ 3 % ink fill (rejects watermarks/noise)
-  const EDGE_PX               = 5;    // hard pixel margin for edge-touch detection (cut-off threshold)
   const MAX_LINE_HEIGHT_RATIO = 0.30; // bar taller than 30 % of zone = header/logo
   const MIN_LINE_HEIGHT_RATIO = 0.03; // bar shorter than 3 % of zone = thin stripe / hologram line
   const EDGE_EXCLUSION_RATIO  = 0.07; // ignore top/bottom 7 % of ROI — catches hologram bands & page-edge lines
@@ -1105,6 +1104,10 @@ function runGuidanceDetection() {
     );
     dilated = new cv_mod.Mat();
     cv_mod.dilate(binary, dilated, kernel);
+    // Copy raw binary pixels before releasing the Mat — the typed-array view
+    // is invalidated by .delete() but we need per-pixel data for the edge-ink
+    // cut-off check that runs after peak detection.
+    const rawBinaryPixels = new Uint8Array(binaryData);
     binary.delete(); binary = null;
     kernel.delete(); kernel = null;
 
@@ -1154,6 +1157,32 @@ function runGuidanceDetection() {
       return total / (255 * cols * bandH);
     };
 
+    // Edge-ink cut-off detector: measures raw (pre-dilation) ink density in
+    // narrow bands at the left/right edges of the ROI for a given row range.
+    // High density means MRZ characters extend to the boundary → line is cut off.
+    const EDGE_BAND_W   = Math.max(4, Math.round(cols * 0.015));
+    const CUTOFF_INK_TH = 0.20;
+    const getEdgeCutoff = (startRow, endRow) => {
+      const endBound = Math.min(endRow, rows - 1);
+      const bandH = endBound - startRow + 1;
+      if (bandH <= 0) return { left: false, right: false };
+      let leftInk = 0, rightInk = 0;
+      const totalBandPx = bandH * EDGE_BAND_W;
+      for (let r = startRow; r <= endBound; r++) {
+        const base = r * cols;
+        for (let c = 0; c < EDGE_BAND_W; c++) {
+          if (rawBinaryPixels[base + c] > 0) leftInk++;
+        }
+        for (let c = cols - EDGE_BAND_W; c < cols; c++) {
+          if (rawBinaryPixels[base + c] > 0) rightInk++;
+        }
+      }
+      return {
+        left:  totalBandPx > 0 && (leftInk  / totalBandPx) >= CUTOFF_INK_TH,
+        right: totalBandPx > 0 && (rightInk / totalBandPx) >= CUTOFF_INK_TH,
+      };
+    };
+
     // ── 10. Multi-filter: reject headers, logos, signatures, and noise ─────
     // Filter 1 (Width):   bar must span ≥ MIN_WIDTH_RATIO of zone width.
     // Filter 2 (Density): must carry enough raw ink — rejects watermarks/noise.
@@ -1183,91 +1212,72 @@ function runGuidanceDetection() {
     // pxData accesses are complete — release dilated now
     dilated.delete(); dilated = null;
 
-    // ── 11. Status logic on validated peaks ──────────────────────────────
+    // ── 11. Status logic ─────────────────────────────────────────────────
     if (validPeaks.length === 0) {
       state.guidance.status  = "NONE";
       state.guidance.message = "No MRZ detected";
 
     } else if (validPeaks.length === 1) {
       const p = validPeaks[0];
-      // TD3 or Nothing: a lone bar must reach ≥ TD3_MIN_SPAN_RATIO of the zone
-      // width to earn an INCOMPLETE warning. Narrower bars are incidental text
-      // (e.g. a partial header) — silence them with NONE to avoid false alerts.
-      if (p.spanInfo.span / cols >= TD3_MIN_SPAN_RATIO) {
+      const edge = getEdgeCutoff(p.start, p.end);
+      state.guidance.mrzRect = {
+        x: zoneX, y: zoneY + p.start,
+        width: zoneW, height: Math.max(1, p.end - p.start),
+      };
+      if (edge.left || edge.right) {
+        state.guidance.status = "CUT_OFF";
+        if (edge.left && edge.right)        state.guidance.message = "MRZ cut off \u2014 zoom out";
+        else if (edge.left)                 state.guidance.message = "MRZ cut off \u2014 move right \u2192";
+        else                                state.guidance.message = "\u2190 MRZ cut off \u2014 move left";
+      } else if (p.spanInfo.span / cols >= TD3_MIN_SPAN_RATIO) {
         state.guidance.status  = "INCOMPLETE";
-        state.guidance.message = "Align MRZ — only 1 line visible";
-        state.guidance.mrzRect = {
-          x: zoneX, y: zoneY + p.start,
-          width: zoneW, height: Math.max(1, p.end - p.start),
-        };
+        state.guidance.message = "Only 1 MRZ line visible \u2014 adjust position";
       } else {
         state.guidance.status  = "NONE";
         state.guidance.message = "No MRZ detected";
       }
 
     } else {
-      // Use the topmost two valid peaks
+      // ── Two or more valid peaks — use the topmost two ──────────────────
       const [p1, p2] = validPeaks.slice(0, 2);
-      const relGap    = (p2.row - p1.row) / zoneH;
-      const similarity = Math.min(p1.value, p2.value) / Math.max(p1.value, p2.value);
 
-      // Spanning rect covering both bands (used for non-READY states)
+      // Spanning rect for non-READY overlays
       state.guidance.mrzRect = {
         x: zoneX, y: zoneY + p1.start,
         width: zoneW, height: Math.max(1, p2.end - p1.start),
       };
 
-      // Symmetry check: TD3 line 1 and line 2 have 44 characters each, so their
-      // pixel widths should be nearly identical. A ratio below MIN_SYMMETRY means
-      // one bar is significantly shorter — reject as misaligned / not a real MRZ.
-      const spanSymmetry = Math.min(p1.spanInfo.span, p2.spanInfo.span) /
-                           Math.max(p1.spanInfo.span, p2.spanInfo.span);
+      // ── 12. Edge-ink cut-off check (runs FIRST) ────────────────────────
+      // Uses raw (pre-dilation) binary to detect characters touching the ROI
+      // boundary. This is zoom-independent: if ink reaches the edge, the line
+      // is being clipped regardless of scale.
+      const edge1 = getEdgeCutoff(p1.start, p1.end);
+      const edge2 = getEdgeCutoff(p2.start, p2.end);
+      const leftCut   = edge1.left  || edge2.left;
+      const rightCut  = edge1.right || edge2.right;
+      const VERT_MARGIN = 3;
+      const topCut    = p1.start < VERT_MARGIN;
+      const bottomCut = p2.end > rows - 1 - VERT_MARGIN;
 
-      if (spanSymmetry < MIN_SYMMETRY) {
-        state.guidance.status  = "INCOMPLETE";
-        state.guidance.message = "Align MRZ \u2014 lines uneven";
+      if (leftCut || rightCut || topCut || bottomCut) {
+        state.guidance.status = "CUT_OFF";
+        if (leftCut && rightCut)            state.guidance.message = "MRZ cut off \u2014 zoom out";
+        else if (leftCut)                   state.guidance.message = "MRZ cut off \u2014 move right \u2192";
+        else if (rightCut)                  state.guidance.message = "\u2190 MRZ cut off \u2014 move left";
+        else if (topCut)                    state.guidance.message = "MRZ cut off \u2014 move down \u2193";
+        else                                state.guidance.message = "MRZ cut off \u2014 move up \u2191";
+      } else {
+        // No cut-off — validate two-line MRZ structure
+        const relGap     = (p2.row - p1.row) / zoneH;
+        const similarity = Math.min(p1.value, p2.value) / Math.max(p1.value, p2.value);
+        const spanSymmetry = Math.min(p1.spanInfo.span, p2.spanInfo.span) /
+                             Math.max(p1.spanInfo.span, p2.spanInfo.span);
 
-      } else if (relGap >= 0.15 && relGap <= 0.85 && similarity >= 0.20) {
-        // ── 12. Containment check ────────────────────────────────────────
-        // READY as long as both bars sit fully inside the guide zone (5 px margin).
-        // At minimum zoom the MRZ naturally spans the full box width, so BOTH
-        // edges touching simultaneously is not an error. However a single-side
-        // horizontal cut-off is always a panning mistake — flag it regardless of zoom.
-        const VERT_MARGIN  = 5;   // px from top/bottom of ROI
-        const atMinZoom    = state.zoom < 1.1;
-        const canZoomOut   = state.zoom > 1.2;
-
-        const minX    = Math.min(p1.spanInfo.left,  p2.spanInfo.left);
-        const maxX    = Math.max(p1.spanInfo.right, p2.spanInfo.right);
-        const topY    = p1.start; // relative to ROI top (0 = top of zone)
-        const bottomY = p2.end;
-
-        const leftTouching   = minX < EDGE_PX;
-        const rightTouching  = maxX > cols - 1 - EDGE_PX;
-        const topTouching    = topY < VERT_MARGIN;
-        const bottomTouching = bottomY > rows - 1 - VERT_MARGIN;
-
-        // Suppress the both-sides-touching case only at minimum zoom (natural fill).
-        // Any single-side cut-off is a pan error — always flagged.
-        const naturalFill = atMinZoom && leftTouching && rightTouching;
-        const hasCutOff   = !naturalFill && (leftTouching || rightTouching || topTouching || bottomTouching);
-
-        if (hasCutOff) {
-          // Give the most actionable message for the cut-off direction.
-          state.guidance.status = "CUT_OFF";
-          if (leftTouching && !rightTouching) {
-            state.guidance.message = "Move Image Right \u2192";
-          } else if (rightTouching && !leftTouching) {
-            state.guidance.message = "\u2190 Move Image Left";
-          } else if (leftTouching && rightTouching) {
-            state.guidance.message = canZoomOut ? "Zoom out \u2014 MRZ too wide" : "Move Image Down \u2193";
-          } else if (topTouching) {
-            state.guidance.message = "Move Image Down \u2193";
-          } else {
-            state.guidance.message = "Move Image Up \u2191";
-          }
-        } else {
-          // Both lines fully contained within the guide zone — ready to extract.
+        if (spanSymmetry < MIN_SYMMETRY) {
+          state.guidance.status  = "INCOMPLETE";
+          state.guidance.message = "Align MRZ \u2014 lines uneven";
+        } else if (relGap >= 0.15 && relGap <= 0.85 && similarity >= 0.20) {
+          // Both full MRZ lines are inside the guide zone — ready to extract.
           state.guidance.status      = "READY";
           state.guidance.message     = "MRZ Ready \u2713";
           state.guidance.mrzDetected = true;
@@ -1275,16 +1285,14 @@ function runGuidanceDetection() {
             { x: zoneX, y: zoneY + p1.start, width: zoneW, height: Math.max(1, p1.end - p1.start) },
             { x: zoneX, y: zoneY + p2.start, width: zoneW, height: Math.max(1, p2.end - p2.start) },
           ];
+        } else {
+          const hasBottomFace = Array.isArray(state.guidance.faceRects) &&
+            state.guidance.faceRects.some((r) => (r.y + r.height / 2) > h * 0.5);
+          state.guidance.status  = "INCOMPLETE";
+          state.guidance.message = hasBottomFace
+            ? "Passport upside down \u2014 please rotate"
+            : "Align MRZ inside the box";
         }
-      } else {
-        // Two wide, symmetrical bars found but structural gap/similarity check
-        // still fails. Treat as INCOMPLETE without a rotation-specific message.
-        const hasBottomFace = Array.isArray(state.guidance.faceRects) &&
-          state.guidance.faceRects.some((r) => (r.y + r.height / 2) > h * 0.5);
-        state.guidance.status  = "INCOMPLETE";
-        state.guidance.message = hasBottomFace
-          ? "Passport upside down \u2014 please rotate"
-          : "Align MRZ inside the box";
       }
     }
 
