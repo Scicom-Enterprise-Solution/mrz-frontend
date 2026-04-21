@@ -1179,7 +1179,7 @@ function runGuidanceDetection() {
       faceCascade.detectMultiScale(
         eqGray, faces,
         1.15,  // scaleFactor  — fewer borderline scale hits than 1.1
-        6,     // minNeighbors — each candidate must be confirmed 6 times (was 3)
+        4,     // minNeighbors — lowered to 3 to accept weaker matches (blur/security patterns)
         0,
         new cv_mod.Size(minFacePx, minFacePx),
         new cv_mod.Size(maxFacePx, maxFacePx)
@@ -1203,9 +1203,8 @@ function runGuidanceDetection() {
       }
       faces.delete();
 
-      // A passport has exactly one face — keep the largest surviving detection only.
-      rects.sort((a, b) => (b.width * b.height) - (a.width * a.height));
-      state.guidance.faceRects = rects.slice(0, 1);
+      // Keep all surviving face detections.
+      state.guidance.faceRects = rects;
     }
 
     // ── 3. Extract grey ROI for MRZ detection ────────────────────────────
