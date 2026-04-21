@@ -380,8 +380,145 @@ function buildCropAnalysis() {
   return cards;
 }
 
+function buildInputQualityCard() {
+  if (!state.previewImage) return null;
+
+  const warnings = [];
+  const img = state.previewImage;
+  const canvasW = els.viewerFrame.clientWidth || 720;
+  const canvasH = els.viewerFrame.clientHeight || 480;
+
+  // ── Off-screen canvas for pixel sampling ──────────────────────────────────
+  const sampleW = Math.max(96, Math.min(180, Math.round(canvasW / 4)));
+  const sampleH = Math.round(sampleW * canvasH / canvasW);
+
+  const sampleCanvas = document.createElement("canvas");
+  renderToCanvas(sampleCanvas, sampleW, sampleH);
+  const sctx = sampleCanvas.getContext("2d");
+  const imageData = sctx.getImageData(0, 0, sampleW, sampleH);
+  const pixels = imageData.data;
+  const pixelCount = sampleW * sampleH;
+
+  // ── 1. Contrast check (luminance standard deviation) ──────────────────────
+  const lums = new Float32Array(pixelCount);
+  let lumSum = 0;
+  for (let i = 0; i < pixelCount; i++) {
+    const base = i * 4;
+    const l = 0.299 * pixels[base] + 0.587 * pixels[base + 1] + 0.114 * pixels[base + 2];
+    lums[i] = l;
+    lumSum += l;
+  }
+  const lumMean = lumSum / pixelCount;
+  let lumVarSum = 0;
+  for (let i = 0; i < pixelCount; i++) {
+    const d = lums[i] - lumMean;
+    lumVarSum += d * d;
+  }
+  const lumStdDev = Math.sqrt(lumVarSum / pixelCount);
+  if (lumStdDev < 28) {
+    warnings.push(`Low contrast: ${lumStdDev.toFixed(1)} luminance stddev.`);
+  }
+
+  // ── 2. Blur check (average absolute adjacent-pixel difference) ────────────
+  let edgeSum = 0;
+  let edgeCount = 0;
+  for (let y = 0; y < sampleH; y++) {
+    for (let x = 0; x < sampleW; x++) {
+      const idx = y * sampleW + x;
+      if (x + 1 < sampleW) {
+        edgeSum += Math.abs(lums[idx] - lums[idx + 1]);
+        edgeCount++;
+      }
+      if (y + 1 < sampleH) {
+        edgeSum += Math.abs(lums[idx] - lums[idx + sampleW]);
+        edgeCount++;
+      }
+    }
+  }
+  const edgeStrength = edgeCount > 0 ? edgeSum / edgeCount : 0;
+  if (edgeStrength < 15) {
+    warnings.push(`Likely blur: ${edgeStrength.toFixed(1)} edge strength.`);
+  }
+
+  // ── 3. Export size check ──────────────────────────────────────────────────
+  const sourceAspect = img.naturalWidth / img.naturalHeight;
+  let expW, expH;
+  if (sourceAspect >= CAPTURE_ASPECT_RATIO) {
+    expH = img.naturalHeight;
+    expW = Math.round(img.naturalHeight * CAPTURE_ASPECT_RATIO);
+  } else {
+    expW = img.naturalWidth;
+    expH = Math.round(img.naturalWidth / CAPTURE_ASPECT_RATIO);
+  }
+  if (expW < 600 || expH < 400) {
+    warnings.push(`Export is ${expW}×${expH}, which may be rejected by the backend minimum size check.`);
+  }
+
+  // ── 4. MRZ guide alignment check ─────────────────────────────────────────
+  // Guide geometry mirrors drawWorkingFrameOverlay exactly
+  const bottomPad = canvasH * 0.04;
+  const guideX     = canvasW * 0.01;
+  const guideY     = canvasH * (1 - MRZ_FOCUS_HEIGHT) - bottomPad - canvasH * MRZ_FOCUS_Y_OFFSET;
+  const guideW     = canvasW * 0.98;
+  const guideH     = canvasH * MRZ_FOCUS_HEIGHT;
+  const guideRight  = guideX + guideW;
+  const guideBottom = guideY + guideH;
+
+  const totalAngle = (state.rotation + state.microRotation) * Math.PI / 180;
+  const cosA   = Math.cos(totalAngle);
+  const sinA   = Math.sin(totalAngle);
+  const rotW   = img.width  * Math.abs(cosA) + img.height * Math.abs(sinA);
+  const rotH   = img.width  * Math.abs(sinA) + img.height * Math.abs(cosA);
+  const baseScale = Math.min(canvasW / rotW, canvasH / rotH);
+  const dragX  = state.offsetX * img.width;
+  const dragY  = state.offsetY * img.height;
+  const cx     = canvasW / 2;
+  const cy     = canvasH / 2;
+  const halfW  = img.width  / 2;
+  const halfH  = img.height / 2;
+
+  const corners = [
+    { x: -halfW + dragX, y: -halfH + dragY },
+    { x:  halfW + dragX, y: -halfH + dragY },
+    { x:  halfW + dragX, y:  halfH + dragY },
+    { x: -halfW + dragX, y:  halfH + dragY },
+  ];
+
+  let imgLeft = Infinity, imgRight = -Infinity, imgTop = Infinity, imgBottom = -Infinity;
+  for (const { x, y } of corners) {
+    const sx = cx + (x * cosA - y * sinA) * baseScale * state.zoom;
+    const sy = cy + (x * sinA + y * cosA) * baseScale * state.zoom;
+    if (sx < imgLeft)   imgLeft   = sx;
+    if (sx > imgRight)  imgRight  = sx;
+    if (sy < imgTop)    imgTop    = sy;
+    if (sy > imgBottom) imgBottom = sy;
+  }
+
+  const overlaps = imgRight > guideX && imgLeft < guideRight &&
+                   imgBottom > guideY && imgTop < guideBottom;
+
+  if (!overlaps) {
+    warnings.push("The MRZ band is not overlapping the guide box yet.");
+  } else {
+    const guideProgress = (imgBottom - guideY) / guideH;
+    if (guideProgress < 0.6) {
+      warnings.push("Move the page a little lower so the MRZ band sits closer to the guide.");
+    }
+  }
+
+  return {
+    title: "Input Quality",
+    items: warnings.length > 0
+      ? warnings
+      : ["Blur, contrast, and placement look acceptable for a frontend-prepared image."],
+    tone: warnings.length > 0 ? "analysis-warn" : "analysis-good",
+  };
+}
+
 function renderCropAnalysis() {
   const cards = buildCropAnalysis();
+  const qualityCard = buildInputQualityCard();
+  if (qualityCard) cards.push(qualityCard);
   els.cropAnalysisOutput.innerHTML = cards
     .map((card) => {
       const items = card.items
