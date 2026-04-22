@@ -4,7 +4,7 @@ const state = {
   localFile: null,
   previewImage: null,
   rotation: 0,
-  microRotation: 0,
+  fineAngle: 0,
   zoom: 1,
   offsetX: 0,
   offsetY: 0,
@@ -25,7 +25,7 @@ const els = {
   resetAdjust: document.querySelector("#reset-adjust"),
   extractButton: document.querySelector("#extract-button"),
   useFaceHint: document.querySelector("#use-face-hint"),
-  microRotate: document.querySelector("#micro-rotate"),
+  fineAngle: document.querySelector("#fine-angle"),
   zoomOut: document.querySelector("#zoom-out"),
   zoomIn: document.querySelector("#zoom-in"),
   zoomRange: document.querySelector("#zoom-range"),
@@ -45,7 +45,7 @@ const els = {
   resultJson: document.querySelector("#result-json"),
   analysisOutput: document.querySelector("#analysis-output"),
   liveGuidanceOutput: document.querySelector("#live-guidance-output"),
-  microRotateVal: document.querySelector("#micro-rotate-val"),
+  fineAngleVal: document.querySelector("#fine-angle-val"),
   zoomVal: document.querySelector("#zoom-val"),
   offsetXVal: document.querySelector("#offset-x-val"),
   offsetYVal: document.querySelector("#offset-y-val"),
@@ -69,7 +69,7 @@ const OFFSET_LIMIT = 0.2;
 const OFFSET_Y_LIMIT = 0.6;
 const ZOOM_MIN = 1.0;
 const ZOOM_MAX = 2.2;
-const DRAG_SENSITIVITY = 0.35;
+const DRAG_SENSITIVITY = 0.55;
 const CAPTURE_ASPECT_RATIO = 4 / 3;
 const MRZ_FOCUS_HEIGHT = 0.140625;
 const MRZ_FOCUS_Y_OFFSET = 0.04;
@@ -344,8 +344,8 @@ function buildCropAnalysis() {
   }
   const warnings = [];
 
-  if (Math.abs(state.microRotation) > 3.0) {
-    warnings.push("Micro rotation is fairly large. Recheck that the page is truly skewed before keeping it.");
+  if (Math.abs(state.fineAngle) > 3.0) {
+    warnings.push("Fine angle is fairly large. Recheck that the page is truly skewed before keeping it.");
   }
   if (state.zoom > 1.6) {
     warnings.push("Zoom is high. Make sure important document edges are not pushed out of frame.");
@@ -362,7 +362,7 @@ function buildCropAnalysis() {
       title: "Adjustment Geometry",
       items: [
         `Rotation: ${state.rotation} degrees`,
-        `Micro rotation: ${state.microRotation.toFixed(1)} degrees`,
+        `Fine angle: ${state.fineAngle.toFixed(1)} degrees`,
         `Zoom: ${state.zoom.toFixed(2)}x`,
         `Offset: x=${state.offsetX.toFixed(3)}, y=${state.offsetY.toFixed(3)}`,
       ],
@@ -464,7 +464,7 @@ function buildInputQualityCard() {
   const guideRight  = guideX + guideW;
   const guideBottom = guideY + guideH;
 
-  const totalAngle = (state.rotation + state.microRotation) * Math.PI / 180;
+  const totalAngle = (state.rotation + state.fineAngle) * Math.PI / 180;
   const cosA   = Math.cos(totalAngle);
   const sinA   = Math.sin(totalAngle);
   const rotW   = img.width  * Math.abs(cosA) + img.height * Math.abs(sinA);
@@ -589,7 +589,7 @@ function updateControls() {
   const hasFile = els.fileInput.files && els.fileInput.files.length > 0;
   els.uploadButton.disabled = !hasFile || state.isBusy;
   els.fileInput.disabled = state.isBusy;
-  els.microRotate.disabled = !hasImage || state.isBusy;
+  els.fineAngle.disabled = !hasImage || state.isBusy;
   els.zoomOut.disabled = !hasImage || state.isBusy;
   els.zoomIn.disabled = !hasImage || state.isBusy;
   els.zoomRange.disabled = !hasImage || state.isBusy;
@@ -597,11 +597,11 @@ function updateControls() {
   els.offsetYRange.disabled = !hasImage || state.isBusy;
   els.rotationChip.textContent = `Rotation: ${state.rotation}`;
   els.docIdChip.textContent = `Document: ${state.documentId || "-"}`;
-  els.microRotate.value = String(state.microRotation);
+  els.fineAngle.value = String(state.fineAngle);
   els.zoomRange.value = String(state.zoom);
   els.offsetXRange.value = String(state.offsetX);
   els.offsetYRange.value = String(state.offsetY);
-  els.microRotateVal.textContent = `${state.microRotation >= 0 ? "+" : ""}${state.microRotation.toFixed(1)}°`;
+  els.fineAngleVal.textContent = `${state.fineAngle >= 0 ? "+" : ""}${state.fineAngle.toFixed(1)}°`;
   els.zoomVal.textContent = `${state.zoom.toFixed(2)}×`;
   els.offsetXVal.textContent = `${state.offsetX >= 0 ? "+" : ""}${state.offsetX.toFixed(3)}`;
   els.offsetYVal.textContent = `${state.offsetY >= 0 ? "+" : ""}${state.offsetY.toFixed(3)}`;
@@ -631,7 +631,7 @@ function updateDocumentSummary() {
 }
 
 function resetAdjustments() {
-  state.microRotation = 0;
+  state.fineAngle = 0;
   state.zoom = 1;
   state.offsetX = 0;
   state.offsetY = 0;
@@ -704,7 +704,7 @@ function renderToCanvas(targetCanvas, targetW, targetH) {
     return;
   }
 
-  const totalAngle = (state.rotation + state.microRotation) * Math.PI / 180;
+  const totalAngle = (state.rotation + state.fineAngle) * Math.PI / 180;
   const cosA = Math.abs(Math.cos(totalAngle));
   const sinA = Math.abs(Math.sin(totalAngle));
   const rotW = img.width * cosA + img.height * sinA;
@@ -749,7 +749,7 @@ function renderCanvas() {
 
   els.viewerFrame.classList.remove("empty");
   const img = state.previewImage;
-  const totalAngle = (state.rotation + state.microRotation) * Math.PI / 180;
+  const totalAngle = (state.rotation + state.fineAngle) * Math.PI / 180;
 
   // Rotated bounding box for "contain" letterbox fit
   const cosA = Math.abs(Math.cos(totalAngle));
@@ -846,7 +846,7 @@ async function loadFileIntoPreview(file) {
     state.upload = null;
     state.documentId = null;
     state.rotation = 0;
-    state.microRotation = 0;
+    state.fineAngle = 0;
     state.zoom = 1;
     state.offsetX = 0;
     state.offsetY = 0;
@@ -990,6 +990,7 @@ function handlePointerDown(event) {
   event.preventDefault();
   state.dragStart = getCanvasPointer(event);
   state.dragCurrent = state.dragStart;
+  state.dragIsRotate = event.altKey;
   renderCanvas();
 }
 
@@ -999,19 +1000,29 @@ function handlePointerMove(event) {
   }
   event.preventDefault();
   const next = getCanvasPointer(event);
-  const rawDx = (next.x - state.dragCurrent.x) * DRAG_SENSITIVITY;
-  const rawDy = (next.y - state.dragCurrent.y) * DRAG_SENSITIVITY;
-  // The canvas renders with ctx.rotate(totalAngle) applied before drawing the
-  // image offset, so the offset lives in the rotated (image) coordinate frame.
-  // Inverse-rotate the screen-space drag delta so dragging always matches the
-  // visual direction regardless of how the image is rotated.
-  const angle = -((state.rotation + state.microRotation) * Math.PI) / 180;
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const dx = rawDx * cos - rawDy * sin;
-  const dy = rawDx * sin + rawDy * cos;
-  state.offsetX = clamp(state.offsetX + dx, -OFFSET_LIMIT, OFFSET_LIMIT);
-  state.offsetY = clamp(state.offsetY + dy, -OFFSET_Y_LIMIT, OFFSET_Y_LIMIT);
+
+  if (state.dragIsRotate) {
+    // Alt+drag: horizontal movement drives fine angle (same range as slider)
+    const rawDx = (next.x - state.dragCurrent.x);
+    const ROTATE_SENSITIVITY = 24; // degrees per full canvas width
+    const delta = rawDx * ROTATE_SENSITIVITY;
+    state.fineAngle = clamp(state.fineAngle + delta, -12, 12);
+  } else {
+    const rawDx = (next.x - state.dragCurrent.x) * DRAG_SENSITIVITY;
+    const rawDy = (next.y - state.dragCurrent.y) * DRAG_SENSITIVITY;
+    // The canvas renders with ctx.rotate(totalAngle) applied before drawing the
+    // image offset, so the offset lives in the rotated (image) coordinate frame.
+    // Inverse-rotate the screen-space drag delta so dragging always matches the
+    // visual direction regardless of how the image is rotated.
+    const angle = -((state.rotation + state.fineAngle) * Math.PI) / 180;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const dx = rawDx * cos - rawDy * sin;
+    const dy = rawDx * sin + rawDy * cos;
+    state.offsetX = clamp(state.offsetX + dx, -OFFSET_LIMIT, OFFSET_LIMIT);
+    state.offsetY = clamp(state.offsetY + dy, -OFFSET_Y_LIMIT, OFFSET_Y_LIMIT);
+  }
+
   state.dragCurrent = next;
   renderCanvas();
   renderCropAnalysis();
@@ -1022,12 +1033,14 @@ function handlePointerUp(event) {
   if (!state.dragStart) {
     return;
   }
+  const wasRotate = state.dragIsRotate;
   state.dragStart = null;
   state.dragCurrent = null;
+  state.dragIsRotate = false;
   renderCanvas();
   renderCropAnalysis();
   updateControls();
-  setStatus("Image adjustment updated.");
+  setStatus(wasRotate ? "Micro rotation updated." : "Image adjustment updated.");
 }
 
 function handleResize() {
@@ -1178,8 +1191,8 @@ function runGuidanceDetection() {
       const faces = new cv_mod.RectVector();
       faceCascade.detectMultiScale(
         eqGray, faces,
-        1.15,  // scaleFactor  — fewer borderline scale hits than 1.1
-        6,     // minNeighbors — each candidate must be confirmed 6 times (was 3)
+        1.1,  // scaleFactor  — fewer borderline scale hits than 1.1
+        4,     // minNeighbors — lowered to 3 to accept weaker matches (blur/security patterns)
         0,
         new cv_mod.Size(minFacePx, minFacePx),
         new cv_mod.Size(maxFacePx, maxFacePx)
@@ -1203,9 +1216,8 @@ function runGuidanceDetection() {
       }
       faces.delete();
 
-      // A passport has exactly one face — keep the largest surviving detection only.
-      rects.sort((a, b) => (b.width * b.height) - (a.width * a.height));
-      state.guidance.faceRects = rects.slice(0, 1);
+      // Keep all surviving face detections.
+      state.guidance.faceRects = rects;
     }
 
     // ── 3. Extract grey ROI for MRZ detection ────────────────────────────
@@ -1612,8 +1624,8 @@ function init() {
   els.extractButton.addEventListener("click", handleExtraction);
   els.saveExportButton.addEventListener("click", handleSaveExport);
   if (els.useFaceHint) els.useFaceHint.addEventListener("change", updatePayloadView);
-  els.microRotate.addEventListener("input", () => {
-    state.microRotation = Number(els.microRotate.value);
+  els.fineAngle.addEventListener("input", () => {
+    state.fineAngle = Number(els.fineAngle.value);
     renderCanvas();
     renderCropAnalysis();
     updateControls();
