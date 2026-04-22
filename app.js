@@ -1191,7 +1191,7 @@ function runGuidanceDetection() {
       const faces = new cv_mod.RectVector();
       faceCascade.detectMultiScale(
         eqGray, faces,
-        1.15,  // scaleFactor  — fewer borderline scale hits than 1.1
+        1.1,  // scaleFactor  — fewer borderline scale hits than 1.1
         4,     // minNeighbors — lowered to 3 to accept weaker matches (blur/security patterns)
         0,
         new cv_mod.Size(minFacePx, minFacePx),
