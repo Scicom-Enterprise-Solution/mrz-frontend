@@ -1163,6 +1163,7 @@ function runGuidanceDetection() {
   const EDGE_EXCLUSION_RATIO  = 0.07; // ignore top/bottom 7 % of ROI — catches hologram bands & page-edge lines
   const TD3_MIN_SPAN_RATIO    = 0.90; // single bar must be ≥ 90 % wide to warn
   const MIN_SYMMETRY          = 0.80; // both MRZ lines must match in width (±20 %)
+  const BORDER_EDGE_TH        = 0.45; // full-ROI edge density above this = border/background, not cut-off text
 
   let full = null, roi = null, gray = null, binary = null,
       kernel = null, dilated = null, grayFull = null;
@@ -1337,6 +1338,30 @@ function runGuidanceDetection() {
       };
     };
 
+    // Full-ROI edge density: measures ink in left/right edge columns across ALL
+    // rows in the zone. A black/dark border fills those columns uniformly for
+    // every row → ratio close to 1.0. Genuine cut-off MRZ text only has ink in
+    // text rows → ratio stays low. Used to suppress false CUT_OFF reports when
+    // the image has a dark border or black background around the passport.
+    const getFullRoiEdgeDensity = () => {
+      let leftInk = 0, rightInk = 0;
+      for (let r = 0; r < rows; r++) {
+        const base = r * cols;
+        for (let c = 0; c < EDGE_BAND_W; c++) {
+          if (rawBinaryPixels[base + c] > 0) leftInk++;
+        }
+        for (let c = cols - EDGE_BAND_W; c < cols; c++) {
+          if (rawBinaryPixels[base + c] > 0) rightInk++;
+        }
+      }
+      const total = rows * EDGE_BAND_W;
+      return {
+        left:  total > 0 ? leftInk  / total : 0,
+        right: total > 0 ? rightInk / total : 0,
+      };
+    };
+    const roiEdge = getFullRoiEdgeDensity();
+
     // ── 10. Multi-filter: reject headers, logos, signatures, and noise ─────
     // Filter 1 (Width):   bar must span ≥ MIN_WIDTH_RATIO of zone width.
     // Filter 2 (Density): must carry enough raw ink — rejects watermarks/noise.
@@ -1378,11 +1403,13 @@ function runGuidanceDetection() {
         x: zoneX, y: zoneY + p.start,
         width: zoneW, height: Math.max(1, p.end - p.start),
       };
-      if (edge.left || edge.right) {
+      const edgeL = edge.left  && roiEdge.left  <= BORDER_EDGE_TH;
+      const edgeR = edge.right && roiEdge.right <= BORDER_EDGE_TH;
+      if (edgeL || edgeR) {
         state.guidance.status = "CUT_OFF";
-        if (edge.left && edge.right)        state.guidance.message = "MRZ cut off \u2014 zoom out";
-        else if (edge.left)                 state.guidance.message = "MRZ cut off \u2014 move right \u2192";
-        else                                state.guidance.message = "\u2190 MRZ cut off \u2014 move left";
+        if (edgeL && edgeR)  state.guidance.message = "MRZ cut off \u2014 zoom out";
+        else if (edgeL)      state.guidance.message = "MRZ cut off \u2014 move right \u2192";
+        else                 state.guidance.message = "\u2190 MRZ cut off \u2014 move left";
       } else if (p.spanInfo.span / cols >= TD3_MIN_SPAN_RATIO) {
         state.guidance.status  = "INCOMPLETE";
         state.guidance.message = "Only 1 MRZ line visible \u2014 adjust position";
@@ -1407,8 +1434,10 @@ function runGuidanceDetection() {
       // is being clipped regardless of scale.
       const edge1 = getEdgeCutoff(p1.start, p1.end);
       const edge2 = getEdgeCutoff(p2.start, p2.end);
-      const leftCut   = edge1.left  || edge2.left;
-      const rightCut  = edge1.right || edge2.right;
+      // Suppress cut-off if that edge column is uniformly filled across the full
+      // ROI height — that indicates a dark border/background, not clipped text.
+      const leftCut  = (edge1.left  || edge2.left)  && roiEdge.left  <= BORDER_EDGE_TH;
+      const rightCut = (edge1.right || edge2.right) && roiEdge.right <= BORDER_EDGE_TH;
       const VERT_MARGIN = 3;
       const topCut    = p1.start < VERT_MARGIN;
       const bottomCut = p2.end > rows - 1 - VERT_MARGIN;
