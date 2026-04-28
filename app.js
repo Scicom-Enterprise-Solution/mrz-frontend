@@ -1158,6 +1158,7 @@ function runGuidanceDetection() {
   // Detection thresholds
   const MIN_WIDTH_RATIO       = 0.75; // bar must span ≥ 75 % of zone width
   const MIN_DENSITY           = 0.03; // ≥ 3 % ink fill (rejects watermarks/noise)
+  const MAX_DENSITY           = 0.82; // ≤ 82 % ink fill — solid black bg after inversion ≈ 1.0, real MRZ text ≈ 0.15–0.55
   const MAX_LINE_HEIGHT_RATIO = 0.30; // bar taller than 30 % of zone = header/logo
   const MIN_LINE_HEIGHT_RATIO = 0.03; // bar shorter than 3 % of zone = thin stripe / hologram line
   const EDGE_EXCLUSION_RATIO  = 0.07; // ignore top/bottom 7 % of ROI — catches hologram bands & page-edge lines
@@ -1381,6 +1382,7 @@ function runGuidanceDetection() {
           p.spanInfo !== null &&
           p.spanInfo.span / cols >= MIN_WIDTH_RATIO &&
           p.density >= MIN_DENSITY &&
+          p.density <= MAX_DENSITY &&
           p.lineHeight / zoneH <= MAX_LINE_HEIGHT_RATIO &&
           p.lineHeight >= Math.max(2, rows * MIN_LINE_HEIGHT_RATIO) && // reject thin hologram/edge stripes
           p.start >= topMargin &&   // reject bars starting in the top exclusion band
